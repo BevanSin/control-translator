@@ -1,0 +1,33 @@
+{
+  "framework": {
+    "id": "nzism",
+    "version": "3.9",
+    "short_name": "NZISM",
+    "display_name": "New Zealand ISM",
+    "reference_url": "https://www.nzism.gcsb.govt.nz/ism-document"
+  },
+  "ingest": { "type": "nzism", "source": "data/source/NZISM-3.9.csv",
+              "classification_profile": "restricted" },
+  "catalogue": { "type": "azure", "source": "data/cache/azure-builtins.json" },
+  "mapping": {
+    "engine": "agentic",
+    "classifier": "azure-openai",
+    "model": "<your-deployment-name>",
+    "foundry_base_url": "https://<resource-name>.services.ai.azure.com/openai/v1",
+    "store": "data/mappings/nzism.json",
+    "global_ignore": ["data/mappings/global-ignore.json"],
+    "auto_approve": true,
+    "confidence_threshold": 0.4,
+    "concurrency": 5
+  },
+  "build": {
+    "type": "azure",
+    "initiative_version": "1.0.0",
+    "group_prefix": "New_Zealand_ISM_",
+    "parameter_overrides": "data/parameters/nzism.json",
+    "scope": "subscription",
+    "enforcement_mode": "DoNotEnforce"
+  },
+  "distribute": { "type": "local" },
+  "out_dir": "out"
+}

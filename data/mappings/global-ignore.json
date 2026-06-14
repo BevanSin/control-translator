@@ -1,0 +1,8 @@
+[
+    {
+    "policy_id": "/providers/Microsoft.Authorization/policyDefinitions/2b4e134f-1e4c-2bff-573e-082d85479b6e",  
+    "display_name": "Develop an incident response plan",
+    "reason": "While this matches a control in NZISM, it is not a technical control that can be implemented via Azure Policy. It is a process control that requires organizational policies and procedures, and is out of scope for this initiative.",
+    "parameters": {}
+    }
+]

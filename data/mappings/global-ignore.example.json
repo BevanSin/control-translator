@@ -1,0 +1,20 @@
+[
+  {
+    "policy_id": "<azure-policy-guid>",
+    "display_name": "Example: enforce TLS 1.3",
+    "reason": "Too hard to implement broadly today \u2014 TLS 1.3 not yet supported across required services.",
+    "oos_date": "2025-09-03"
+  },
+  {
+    "policy_id": "<azure-policy-guid>",
+    "display_name": "Example: in-guest configuration policy",
+    "reason": "Requires the Guest Configuration / In-Guest policy + agent, out of scope for this initiative.",
+    "oos_date": "2025-09-03"
+  },
+  {
+    "policy_id": "<azure-policy-guid>",
+    "display_name": "Example: approved SOE image allow-list",
+    "reason": "Requires a customer-specific list of SOE image names; cannot be set generically.",
+    "oos_date": "2025-09-03"
+  }
+]

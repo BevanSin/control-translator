@@ -1,0 +1,55 @@
+# Real run config (requires the NZISM ingestor + Azure catalogue plugins).
+# Documentation example — the offline demo uses config/sample.json.
+framework:
+  id: nzism
+  version: "3.9"                   # NZISM document version — goes in the description
+  short_name: "NZISM"
+  display_name: "New Zealand ISM"
+  reference_url: "https://www.nzism.gcsb.govt.nz/ism-document"
+
+ingest:
+  type: nzism                      # parses the NZISM CSV export -> OSCAL
+  source: data/source/NZISM-3.9.csv
+  classification_profile: restricted  # all | restricted | protected
+                                      # "restricted" = NZ Gov public cloud scope (up to RESTRICTED)
+                                      # "protected"  = AU Gov (IRAP/ISM, up to PROTECTED)
+                                      # "all"        = no filter, include every control
+
+catalogue:
+  type: azure                      # live ARM pull of built-in policy definitions
+  cache: data/cache/azure-builtins.json   # cached after first pull
+
+mapping:
+  engine: agentic                  # or "keyword" for the free, instant baseline
+  # classifier options:
+  #   heuristic — offline, no LLM, no cost/signup (token overlap; lower quality)
+  #   anthropic — Claude via first-party API (needs ANTHROPIC_API_KEY)
+  #   foundry   — Claude via Azure AI Foundry, billed to your Azure sub
+  classifier: anthropic
+  model: claude-opus-4-7           # for foundry: your Foundry *deployment name*
+  effort: medium                   # low | medium | high | max
+  # foundry_base_url: "https://<resource>.services.ai.azure.com/anthropic"
+  store: data/mappings/nzism.json
+  global_ignore:                              # single path OR list of paths (union)
+    - data/mappings/global-ignore.json       # cross-framework: process controls, In-Guest agent, etc.
+    # - data/mappings/nzism-ignore.json      # add NZISM-specific exclusions here
+  auto_approve: false              # authority sign-off gate on all new proposals
+  confidence_threshold: 0.75
+  concurrency: 5                  # parallel LLM calls (raise to 8-10 if rate limits allow)
+
+build:
+  type: azure
+  initiative_version: "1.0.0"      # semver — bump for policy/deprecation changes,
+                                   # independent of the NZISM document version above
+  group_prefix: "New_Zealand_ISM_" # control groups -> New_Zealand_ISM_06.2.5.C.01
+  parameter_overrides: data/parameters/nzism.json   # required default params (optional)
+  # include_metadata_id: true       # only for the built-in submission path
+  # metadata_id_template: "/providers/Microsoft.PolicyInsights/policyMetadata/New_Zealand_ISM_{control_id}"
+  scope: managementGroup           # or "subscription"
+  enforcement_mode: DoNotEnforce   # audit-only -> lights up Defender Reg. Compliance
+
+distribute:
+  type: gov-repo                   # local | community-policy | gov-repo
+  target: "git@github.com:<authority-org>/nzism-azure-policy.git"
+
+out_dir: out

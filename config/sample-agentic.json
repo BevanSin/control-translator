@@ -1,0 +1,17 @@
+{
+  "framework": { "id": "sample", "version": "1.0", "display_name": "SAMPLE Placeholder Standard" },
+  "ingest": { "type": "fixture", "source": "tests/fixtures/sample_catalogue.json" },
+  "catalogue": { "type": "offline", "source": "tests/fixtures/sample_builtins.json" },
+  "mapping": {
+    "engine": "agentic",
+    "classifier": "heuristic",
+    "top_k": 5,
+    "store": "data/mappings/sample-agentic.json",
+    "global_ignore": "data/mappings/global-ignore.json",
+    "auto_approve": true,
+    "confidence_threshold": 0.3
+  },
+  "build": { "type": "azure", "scope": "subscription", "enforcement_mode": "DoNotEnforce" },
+  "distribute": { "type": "local" },
+  "out_dir": "out"
+}

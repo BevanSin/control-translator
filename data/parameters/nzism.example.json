@@ -1,0 +1,55 @@
+{
+  "82067dbb-e53b-4e06-b631-546d197452d9": {
+    "minimumRSAKeySize": {
+      "initiative_param": "minimumRSAKeySize-1",
+      "definition": {
+        "type": "Integer",
+        "metadata": {
+          "displayName": "Minimum RSA key size",
+          "description": "The minimum key size for RSA keys."
+        },
+        "allowedValues": [
+          2048,
+          3072,
+          4096
+        ],
+        "defaultValue": 2048
+      }
+    }
+  },
+  "cee51871-e572-4576-855c-047c820360f0": {
+    "minimumRSAKeySize": {
+      "initiative_param": "minimumRSAKeySize-1",
+      "definition": {
+        "type": "Integer",
+        "metadata": {
+          "displayName": "Minimum RSA key size",
+          "description": "The minimum key size for RSA keys."
+        },
+        "allowedValues": [
+          2048,
+          3072,
+          4096
+        ],
+        "defaultValue": 2048
+      }
+    }
+  },
+  "5752e6d6-1206-46d8-8ab1-ecc2f71a8112": {
+    "MinimumTLSVersion": {
+      "initiative_param": "MinimumTLSVersion-1",
+      "definition": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Minimum TLS version",
+          "description": "The minimum TLS protocol version that should be enabled. Windows machines with lower TLS versions will be marked as non-compliant."
+        },
+        "allowedValues": [
+          "1.1",
+          "1.2"
+        ],
+        "defaultValue": "1.2"
+      }
+    }
+  }
+}

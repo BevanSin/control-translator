@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control Translator — End-to-End Process Guide</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px; line-height: 1.6; color: #111827;
+      background: #fafafa; margin: 0; padding: 0;
+    }
+    main { max-width: 820px; margin: 0 auto; padding: 56px 32px 80px; }
+
+    h1 { font-size: 1.75rem; line-height: 1.25; margin: 2.4em 0 0.5em; font-weight: 700; color: #1e3a5f; }
+    h2 { font-size: 1.25rem; line-height: 1.3; margin: 1.8em 0 0.4em; font-weight: 600; color: #1e3a5f; }
+    h3 { font-size: 1.05rem; line-height: 1.35; margin: 1.4em 0 0.35em; font-weight: 600; color: #1f2937; border-left: 3px solid #2563eb; padding-left: 10px; }
+    h4 { font-size: 0.95rem; line-height: 1.4; margin: 1.1em 0 0.3em; font-weight: 600; color: #374151; }
+    p  { margin: 0 0 1em; }
+    ul, ol { margin: 0 0 1em; padding-left: 1.6em; }
+    li { margin: 0.3em 0; }
+    a  { color: #2563eb; text-decoration: underline; text-underline-offset: 2px; }
+    strong { font-weight: 600; }
+
+    table { width: 100%; border-collapse: collapse; margin: 1.2em 0; font-size: 0.93rem; }
+    th, td { text-align: left; padding: 10px 13px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    th { background: #f0f4f8; font-weight: 600; border-bottom: 2px solid #cbd5e1; color: #1e3a5f; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+
+    .callout { background: #eff6ff; border-left: 4px solid #2563eb; padding: 13px 17px; margin: 1.3em 0; border-radius: 4px; }
+    .callout.tip    { background: #ecfdf5; border-left-color: #059669; }
+    .callout.warn   { background: #fef3c7; border-left-color: #d97706; }
+    .callout.danger { background: #fee2e2; border-left-color: #dc2626; }
+    .callout p:last-child { margin-bottom: 0; }
+    .callout-label { font-weight: 700; margin: 0 0 4px; color: #1e3a8a; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; }
+    .callout.tip .callout-label    { color: #065f46; }
+    .callout.warn .callout-label   { color: #92400e; }
+    .callout.danger .callout-label { color: #991b1b; }
+
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.875em; background: #f1f5f9; padding: 2px 6px; border-radius: 3px; color: #0f172a; }
+    pre  { background: #1e293b; border-radius: 8px; padding: 16px 20px; margin: 1em 0; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.85em; line-height: 1.6; color: #e2e8f0; }
+    pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    .ps1-prompt { color: #7dd3fc; user-select: none; }
+    .comment { color: #64748b; }
+
+    .meta { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 4px; padding: 10px 16px; margin: 0.8em 0 1.8em; color: #475569; font-size: 0.9em; }
+    .badge { display: inline-block; background: #dbeafe; color: #1e40af; font-size: 0.78em; font-weight: 700; padding: 2px 8px; border-radius: 12px; vertical-align: middle; text-transform: uppercase; letter-spacing: 0.03em; }
+    .badge.green { background: #d1fae5; color: #065f46; }
+    .badge.amber { background: #fef3c7; color: #92400e; }
+    .badge.grey  { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+    .badge.red   { background: #fee2e2; color: #991b1b; }
+
+    hr { border: none; border-top: 1px solid #e2e8f0; margin: 2.5em 0; }
+
+    .title-block { border-bottom: 3px solid #2563eb; padding-bottom: 1.5em; margin-bottom: 0; }
+    .title-block .doc-title { font-size: 2.2rem; font-weight: 800; color: #1e3a5f; margin: 0 0 0.2em; line-height: 1.15; letter-spacing: -0.02em; }
+    .title-block .subtitle { font-size: 1.05rem; color: #475569; margin: 0 0 1.1em; }
+
+    .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 1.5em 0; }
+    .flow-step { background: #1e3a5f; color: #fff; font-weight: 600; font-size: 0.82em; padding: 8px 16px; border-radius: 6px; letter-spacing: 0.01em; }
+    .flow-step.orange { background: #b45309; }
+    .flow-step.green  { background: #065f46; }
+    .flow-arrow { color: #94a3b8; font-size: 1.1em; }
+
+    .file-tree { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 14px 18px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.855em; line-height: 1.75; margin: 1em 0; color: #1e293b; }
+    .file-tree .dir  { color: #1e3a5f; font-weight: 600; }
+    .file-tree .note { color: #64748b; }
+    .file-tree .key  { color: #059669; font-weight: 600; }
+
+    .step-row { display: flex; gap: 12px; margin: 0.6em 0; }
+    .step-circle { flex-shrink: 0; width: 24px; height: 24px; background: #2563eb; color: #fff; font-weight: 700; font-size: 0.8em; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+    .step-content { flex: 1; }
+
+    @media (max-width: 600px) { main { padding: 32px 16px 60px; } }
+    @media print {
+      body { background: #fff; }
+      pre  { background: #f0f0f0; color: #000; border: 1px solid #ccc; }
+      h1,h2,h3,h4 { page-break-after: avoid; }
+      table, .callout, pre { page-break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+
+  <!-- ===== TITLE BLOCK ===== -->
+  <div class="title-block">
+    <h1 class="doc-title" style="margin-top:0">Control Translator</h1>
+    <p class="subtitle">End-to-End Process Guide</p>
+    <div class="meta">
+      <strong>Audience:</strong> Solution Engineer &nbsp;·&nbsp;
+      <strong>Cadence:</strong> Once per standard release cycle (~annually) &nbsp;·&nbsp;
+      <strong>Version:</strong> <span class="badge">1.0 — Current</span>
+    </div>
+  </div>
+
+  <!-- ===== 1. OVERVIEW ===== -->
+  <h1>1. Overview</h1>
+  <p>
+    <strong>Control Translator</strong> turns a published security standard — such as the
+    New Zealand Information Security Manual (NZISM) — into a deployable Azure custom
+    Regulatory Compliance initiative. It ingests the control catalogue, pulls the current
+    set of Azure built-in policy definitions, uses an AI classifier to map each control to
+    the most appropriate built-in policies, and emits a native Azure initiative (plus Bicep
+    deployment template) ready to assign to your subscription or management group.
+  </p>
+  <p>
+    The result appears in <strong>Defender for Cloud → Regulatory compliance</strong> just
+    like a Microsoft-published built-in standard, but is under your control — no dependency
+    on a centrally-managed publishing pathway.
+  </p>
+
+  <div class="flow">
+    <div class="flow-step">1 · Ingest</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">2 · Catalogue</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">3 · Map</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step orange">4 · Review</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">5 · Build</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step green">6 · Deploy</div>
+  </div>
+
+  <table>
+    <thead><tr><th>Stage</th><th>What happens</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Ingest</strong></td><td>Parses your framework CSV export into an OSCAL control catalogue. <em>(NZISM v3.9: 1,422 controls across 23 chapters.)</em></td></tr>
+      <tr><td><strong>Catalogue</strong></td><td>Pulls ~1,000+ Azure built-in policy definitions from ARM and caches them locally</td></tr>
+      <tr><td><strong>Map</strong></td><td>For each control, retrieves candidate policies then uses an AI classifier to decide include/ignore/OOS with a confidence score and rationale</td></tr>
+      <tr><td><strong>Review</strong></td><td>Human (and authority) reviews pending proposals, OOS candidates, and any reconsidered OOS entries</td></tr>
+      <tr><td><strong>Build</strong></td><td>Emits <code>policySet.json</code>, <code>main.bicep</code>, and supporting artefacts</td></tr>
+      <tr><td><strong>Deploy</strong></td><td>Deploys the custom Regulatory Compliance initiative (audit-only) to Azure</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <!-- ===== 2. PREREQUISITES ===== -->
+  <h1>2. Prerequisites</h1>
+  <p>Check and install each of the following before proceeding. Prerequisites marked
+  <span class="badge">Always</span> are required for every run.</p>
+
+  <h2>2.1 Python 3.10+ <span class="badge">Always</span></h2>
+  <p><strong>Check:</strong> open PowerShell and run <code>py --version</code>.
+  You need 3.10 or newer (3.11, 3.12, 3.13 all work).</p>
+  <p><strong>Install if needed:</strong></p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> winget install Python.Python.3.12</code></pre>
+  <p>Or download from <a href="https://www.python.org/downloads/windows/">python.org/downloads/windows</a>.</p>
+
+  <h2>2.2 Git <span class="badge">Always</span></h2>
+  <p><strong>Check:</strong> <code>git --version</code></p>
+  <p><strong>Install if needed:</strong> download from
+  <a href="https://git-scm.com/download/win">git-scm.com/download/win</a> and run the installer.</p>
+
+  <h2>2.3 Azure CLI <span class="badge">Always</span></h2>
+  <p>Required for pulling Azure built-in policy definitions on every run. Also used for
+  keyless LLM authentication if you are using Azure AI Foundry.</p>
+  <p><strong>Check:</strong> <code>az --version</code></p>
+  <p><strong>Install if needed:</strong> follow the
+  <a href="https://learn.microsoft.com/cli/azure/install-azure-cli-windows">Microsoft Azure CLI install guide</a>.</p>
+
+  <h2>2.4 LLM access — choose one <span class="badge amber">Agentic mapping</span></h2>
+  <p>The agentic mapping stage requires one of the following. If you only want to test
+  the pipeline without any LLM, skip this — the heuristic mapper requires no setup.</p>
+
+  <table>
+    <thead><tr><th>Option</th><th>What you need</th><th>Cost</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Azure AI Foundry</strong> <span class="badge green">Recommended</span></td>
+        <td>A model (e.g. <code>gpt-4o-mini</code>) deployed in an Azure AI Foundry project. Auth is keyless via <code>az login</code> — no separate API key. Setup: Section 3.2.</td>
+        <td>Billed to your Azure subscription</td>
+      </tr>
+      <tr>
+        <td><strong>Anthropic API key</strong></td>
+        <td>An account and API key from <a href="https://console.anthropic.com">console.anthropic.com</a>. Setup: Section 3.2.</td>
+        <td>Pay-per-use, <a href="https://www.anthropic.com/pricing">anthropic.com/pricing</a></td>
+      </tr>
+      <tr>
+        <td><strong>Heuristic (no LLM)</strong></td>
+        <td>No setup required. Free. Lower quality — suitable for testing the pipeline end to end.</td>
+        <td>Free</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted" style="font-size:0.9em">Python packages for your chosen LLM are installed in Section 3.1.</p>
+
+  <hr>
+
+  <!-- ===== 3. ONE-TIME SETUP ===== -->
+  <h1>3. One-Time Setup</h1>
+
+  <h2>3.1 Get the code</h2>
+  <p><strong>First time:</strong> clone the repository.</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> git clone &lt;repository-url&gt; control-translator
+<span class="ps1-prompt">PS&gt;</span> cd control-translator</code></pre>
+  <p><strong>Subsequent cycles (annual update):</strong> pull the latest version of the tool.</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> cd control-translator
+<span class="ps1-prompt">PS&gt;</span> git pull origin main</code></pre>
+
+  <div class="callout danger">
+    <p class="callout-label">⚠ Never overwrite your data/ folder from the repo</p>
+    <p>The <code>data/</code> folder contains <strong>your working data</strong> —
+    mapping decisions (<code>data/mappings/</code>), OOS registers, source CSVs, and
+    the built-in policy cache. These are yours, not the tool's. If you copy or sync
+    the full project folder from a shared location, always exclude <code>data/</code>:</p>
+<pre style="margin:0.5em 0 0"><code><span class="comment"># Correct: sync only code and config, never data</span>
+robocopy &lt;source&gt;\src    C:epos\control-translator\src    /MIR /NFL /NDL
+robocopy &lt;source&gt;\config C:epos\control-translator\config /MIR /NFL /NDL
+
+<span class="comment"># Wrong: this overwrites your mapping store and OOS register</span>
+<span class="comment"># robocopy &lt;source&gt; C:epos\control-translator /MIR   ← do not use</span></code></pre>
+    <p>Overwriting <code>data\mappings
+zism.json</code> loses all your curated decisions
+    and forces a full re-run. Overwriting <code>data\mappings\global-ignore.json</code>
+    replaces your OOS register with an empty or example file.</p>
+  </div>
+
+  <h2>3.2 Install</h2>
+  <p>From the <code>control-translator</code> folder in PowerShell:</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> python -m venv .venv
+<span class="ps1-prompt">PS&gt;</span> .venv\Scripts\Activate.ps1        <span class="comment"># prompt shows (.venv) when active</span>
+<span class="ps1-prompt">PS&gt;</span> pip install -e ".[azure]"          <span class="comment"># core + Azure built-in pull</span>
+<span class="ps1-prompt">PS&gt;</span> pip install "openai>=1.50"         <span class="comment"># add if using Azure AI Foundry / GPT</span></code></pre>
+
+  <div class="callout warn">
+    <p class="callout-label">⚠ PowerShell activation blocked?</p>
+    <p>If <code>Activate.ps1</code> fails with an execution policy error, run this first:<br>
+    <code>Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</code><br>
+    Then run <code>.venv\Scripts\Activate.ps1</code> again.</p>
+  </div>
+
+  <p>Also create the folder structure the tool expects:</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> mkdir data\source   -Force   <span class="comment"># where your control framework CSV goes</span>
+<span class="ps1-prompt">PS&gt;</span> mkdir data\mappings -Force   <span class="comment"># mapping store and OOS register</span>
+<span class="ps1-prompt">PS&gt;</span> mkdir data\cache    -Force   <span class="comment"># Azure built-in policy cache</span></code></pre>
+
+  <h2>3.3 Create your config file</h2>
+  <p>The repository includes a starter config file. Copy it to create your own
+  working copy — this keeps the original clean and lets you maintain multiple configs
+  for different environments or standards.</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> copy config\nzism-azure.json config\&lt;your-initiative-name&gt;.json</code></pre>
+  <p>Open <code>config\nzism-myjob.json</code> in VS Code or your editor of choice and
+  update the settings for your environment. The key section to configure is
+  <code>mapping</code> — specifically the classifier and its endpoint.</p>
+
+  <h2>3.4 Configure your LLM</h2>
+  <p>In your copied config file, update the <code>mapping</code> block:</p>
+
+  <h3>Option A — Azure AI Foundry (recommended)</h3>
+
+  <p><strong>Step 1 — find your endpoint URL:</strong></p>
+  <ol>
+    <li>In the Azure portal, open your <strong>Azure AI Foundry</strong> project.</li>
+    <li>Click <strong>View Deployments</strong> in the left navigation.</li>
+    <li>Select your deployed model (e.g. <code>gpt-4o-mini</code>).</li>
+    <li>In the right-hand pane, find the <strong>code sample</strong> and copy the endpoint URL. It will look like:<br>
+    <code>https://&lt;resource-name&gt;.services.ai.azure.com/openai/v1</code></li>
+  </ol>
+
+  <p><strong>Step 2 — update your config file.</strong> The template already has the right fields — replace the two placeholder values and leave everything else exactly as it is:</p>
+<pre><code>"mapping": {
+  "engine":               "agentic",                                       <span class="comment">// already set — leave</span>
+  "classifier":           "azure-openai",                                  <span class="comment">// already set — leave</span>
+  "model":                "&lt;your-deployment-name&gt;",  <span class="comment">// &lt;&lt; replace: e.g. "gpt-4o-mini"</span>
+  "foundry_base_url":     "https://&lt;resource-name&gt;.services.ai.azure.com/openai/v1",  <span class="comment">// &lt;&lt; replace: paste from Step 1</span>
+  "store":                "data/mappings/nzism.json",  <span class="comment">// leave</span>
+  "global_ignore":        ["data/mappings/global-ignore.json"],  <span class="comment">// leave (or list — see Section 7)</span>
+  "auto_approve":         true,                                            <span class="comment">// leave</span>
+  "confidence_threshold": 0.4                                              <span class="comment">// leave</span>
+}</code></pre>
+  <p>Auth uses your <code>az login</code> session — no separate API key needed.</p>
+
+  <h3>Option B — Anthropic</h3>
+  <p>Sign up at <a href="https://console.anthropic.com">console.anthropic.com</a> and create an API key, then:</p>
+<pre><code><span class="comment"># Set in PowerShell before running ct (this session only)</span>
+<span class="ps1-prompt">PS&gt;</span> $env:ANTHROPIC_API_KEY = "sk-ant-..."</code></pre>
+  <p>Update the config mapping block:</p>
+<pre><code>"mapping": {
+  "engine":     "agentic",
+  "classifier": "anthropic",
+  "model":      "claude-opus-4-7",
+  ...
+}</code></pre>
+
+  <h2>3.5 Verify the install</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct run --config config\sample.json</code></pre>
+  <p>Expected output: <code>approved: 1, pending review: 1</code> — this confirms the
+  install is working using placeholder fixtures with no cloud access required.</p>
+
+  <hr>
+
+  <!-- ===== 4. PREPARING YOUR CONTROL FRAMEWORK ===== -->
+  <h1>4. Preparing Your Control Framework</h1>
+
+  <p>The currently supported input format is a <strong>CSV export from your published standard</strong>.
+  For NZISM the file has 9 columns:</p>
+
+  <div class="file-tree">
+    <span class="dir">Columns:</span> Chapter, Section, Sub-Section, Block, Paragraph, Classifications, Compliance, CID, ControlText
+  </div>
+
+  <div class="callout">
+    <p class="callout-label">ℹ Roadmap note</p>
+    <p>Website URL and PDF ingestors are on the roadmap. For now, export the standard manually from its
+    publisher's website as CSV. For NZISM: <a href="https://www.nzism.gcsb.govt.nz/ism-document">nzism.gcsb.govt.nz</a>.</p>
+  </div>
+
+  <p>The <code>data\source</code> folder was created in Section 3.2. Place your CSV there:</p>
+<pre><code><span class="comment"># Copy your framework CSV export to the source folder</span>
+<span class="ps1-prompt">PS&gt;</span> copy "C:\path\to\your-framework.csv" data\source\your-framework.csv
+<span class="comment"># NZISM example: copy "...\NZISM-ISM-Document-V3.9.csv" data\source\NZISM-3.9.csv</span></code></pre>
+
+  <h2>4.1 Optional — create a chapter subset for testing</h2>
+  <p>For a first run, filtering to a single chapter or section is a fast, cheap way to
+  prove the pipeline before processing all controls.
+  The one-liner below filters by chapter — update the <code>startswith</code> value to match a chapter prefix in your framework.
+  <em>(NZISM example: Chapter 6 has 16 controls out of 1,422 total.)</em></p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> python -c "
+import csv
+rows=[r for r in csv.DictReader(open('data/source/NZISM-3.9.csv',encoding='utf-8-sig'))
+      if r['Chapter'].startswith('6.') and r['CID'] and r['ControlText']]   # change '6.' to your target chapter
+w=csv.DictWriter(open('data/source/nzism-ch6.csv','w',newline='',encoding='utf-8-sig'),fieldnames=rows[0].keys())
+w.writeheader(); w.writerows(rows)
+print(len(rows), 'controls written')
+"</code></pre>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Test run vs full run — which config to use in Section 5</p>
+    <p>If you created the chapter 6 subset above, update your config's <code>ingest.source</code> to
+    <code>data/source/your-chapter-subset.csv</code> for a quick test. When ready for the full run,
+    change it back to your full CSV path. Everything else in the pipeline is identical —
+    the full run just processes all controls instead of the subset.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 5. RUNNING THE PIPELINE ===== -->
+  <h1>5. Running the Pipeline</h1>
+
+  <h2>5.1 Authenticate</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> az login --tenant &lt;your-tenant-id&gt;</code></pre>
+  <p>Replace <code>&lt;your-tenant-id&gt;</code> with your Azure AD tenant ID or domain name
+  (e.g. <code>yourdomain.onmicrosoft.com</code>). Using <code>--tenant</code> avoids
+  credential confusion when you have access to multiple tenants. Find your tenant ID in
+  <strong>Azure Portal → Microsoft Entra ID → Overview</strong>.</p>
+  <p>This single login covers the Azure built-in policy catalogue pull and keyless auth
+  for Azure AI Foundry.</p>
+
+  <h2>5.2 Run</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct run --config config\nzism-myjob.json   <span class="comment"># the config you created in Section 3.3</span></code></pre>
+
+  <p>The pipeline does the following on each run:</p>
+  <ol>
+    <li><strong>Pulls Azure built-in policies</strong> (~1,000+ definitions) from ARM and caches to <code>data\cache\azure-builtins.json</code>. Skipped on subsequent runs unless cache is deleted.</li>
+    <li><strong>Ingests all controls</strong> from your framework CSV into an OSCAL catalogue. <em>(NZISM v3.9: 1,422 controls across 23 chapters.)</em></li>
+    <li><strong>Auto-excludes</strong> two categories from the candidate pool before any LLM call: <code>[Preview]:</code> policies (automatic, temporary) and entries in your OOS register file(s) configured under <code>global_ignore</code> (permanent human OOS decisions).</li>
+    <li><strong>Maps each control</strong> — retrieves the top-12 most similar built-in policies (TF-IDF shortlist), then sends each shortlist to the LLM classifier for include/ignore/OOS decisions with rationales.</li>
+    <li><strong>Builds the initiative artefacts</strong> in <code>out\&lt;framework-id&gt;-&lt;version&gt;\</code>. <em>(NZISM example: <code>out\nzism-3.9\</code>.)</em></li>
+  </ol>
+
+  <h2>5.3 Progress output during the run</h2>
+  <p>The pipeline streams progress to the terminal as it works. Each stage announces
+  itself, and the mapping stage prints one line per control — updated in place — so
+  you can see exactly where it is at any moment.</p>
+<pre><code>▶  Ingest  — New Zealand ISM v3.9
+   ✓  1422 controls across 23 chapters
+
+▶  Catalogue — loading from cache
+   ✓  987 built-in policies available (cached)
+
+▶  Map  —  engine: agentic  |  classifier: azure-openai  |  0 carry-forward  |  1422 to classify
+  Candidates: 987 built-in policies (43 preview-excluded, 2 OOS-excluded)
+[   42/1422] [████░░░░░░░░░░░░░░░░]   3%  06.2.5.C.01          include         (conf:0.85 · 3 pol)
+[   43/1422] [████░░░░░░░░░░░░░░░░]   3%  06.2.6.C.01          pending         (conf:0.41 · 1 pol)
+
+  Mapping complete — 0 carry-forward  |  312 approved  |  1110 pending review  |  17 OOS candidates
+
+▶  Build
+   ✓  312 controls with coverage  |  208 policy definitions  |  47 covering multiple controls
+
+▶  Distribute
+   ✓  published → out\nzism-3.9</code></pre>
+
+  <p>The control line format is:
+  <code>[current/total] [progress bar] pct%  control-id  decision  (confidence · policies)</code>.
+  It overwrites in place on each step so long runs don't flood the terminal.</p>
+  <p>On a subsequent run, carry-forward controls show as <code>carry-forward (include)</code>
+  or <code>carry-forward (ignore)</code> — no LLM call, effectively instant.</p>
+
+  <h2>5.4 Subsequent runs — the carry-forward</h2>
+  <p>
+    The mapping store (<code>data\mappings\&lt;your-framework&gt;.json</code>) persists decisions across runs.
+    Controls already decided as <strong>include</strong> or <strong>ignore</strong> are
+    reused without any LLM call — only undecided controls trigger the classifier.
+    This is why re-runs after the initial pass are fast and cheap.
+  </p>
+
+  <div class="callout warn" id="delete-store">
+    <p class="callout-label">⚠ When to delete the mapping store</p>
+    <p>Delete your mapping store file (e.g. <code>data\mappings\nzism.json</code>) when you need decisions to recompute from scratch — for example, after adding a new entry to your OOS register and wanting it to take effect immediately, or when testing a configuration change.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 6. UNDERSTANDING THE OUTPUTS ===== -->
+  <h1>6. Understanding the Outputs</h1>
+
+  <h2>6.1 Output folder</h2>
+
+  <div class="file-tree">
+<span class="dir">out\&lt;framework-id&gt;-&lt;version&gt;\</span>  <span class="note">(e.g. out\nzism-3.9\)</span>
+  <span class="key">policySet.json</span>          <span class="note">← the deployable custom initiative (this is what you deploy)</span>
+  assignment.json         <span class="note">← audit-mode assignment definition</span>
+  main.bicep              <span class="note">← Bicep deployment template</span>
+  deploy.sh               <span class="note">← bash deploy script (reference)</span>
+  <span class="key">out-of-scope.json</span>       <span class="note">← confirmed OOS register (human + auto-preview)</span>
+  <span class="key">oos-candidates.json</span>     <span class="note">← LLM suggestions for review → promote to global-ignore</span>
+  oos-reconsidered.json   <span class="note">← previously OOS'd policies that have changed (if any)</span>
+  </div>
+
+  <h2>6.2 Review with <code>ct review</code></h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct review --config config\&lt;your-config&gt;.json</code></pre>
+
+  <p>This runs the full pipeline without distributing and prints three sections in priority order:</p>
+
+  <table>
+    <thead><tr><th>#</th><th>Section</th><th>Priority</th><th>Action needed</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>OOS RECONSIDERED</strong></td><td><span class="badge red">High</span></td><td>Policies that have changed since they were excluded. Review and update the relevant OOS register file.</td></tr>
+      <tr><td>2</td><td><strong>PREVIEW-EXCLUDED</strong></td><td><span class="badge grey">Info</span></td><td>Auto-filtered <code>[Preview]:</code> policies — informational only. Will auto-reappear when GA.</td></tr>
+      <tr><td>3</td><td><strong>PENDING REVIEW</strong></td><td><span class="badge amber">Medium</span></td><td>Control→policy mappings awaiting authority sign-off. Edit the mapping store to approve or reject.</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <!-- ===== 7. TRIAGING OOS CANDIDATES ===== -->
+  <h1>7. Triaging OOS Candidates</h1>
+
+  <p>After each run, <code>oos-candidates.json</code> lists policies the LLM has flagged
+  as <strong>out of scope by default</strong> for a shared platform initiative. These are
+  not necessarily wrong policies — they may be perfectly appropriate for an individual
+  adopting organisation to implement as custom policies in their own environment. The
+  distinction is that they require the adopting organisation to supply environment-specific
+  configuration that cannot be set meaningfully in a shared policy set. Including them
+  in a platform standard would produce either incomplete evaluation or misleading
+  compliance posture for every adopting organisation using the initiative.</p>
+
+  <p>Common patterns for default OOS:</p>
+
+  <ul>
+    <li><strong>Requires organisation-specific values</strong> — the policy needs parameters
+    that vary by environment and cannot be set generically, such as approved OS/SOE image names,
+    admin account names, approved package or namespace lists</li>
+    <li><strong>Requires a pre-deployed agent or extension</strong> — evaluation depends on
+    infrastructure (e.g. ChangeTracking agent, Guest Configuration extension) that each
+    adopting organisation must deploy and manage independently</li>
+    <li><strong>Is a process or management control</strong> — the policy describes an
+    organisational obligation (e.g. "Develop an incident response plan") that cannot be
+    automatically evaluated by Azure Policy</li>
+    <li><strong>References a technology not universally available</strong> — e.g. a protocol
+    version or service capability not yet supported across all services an adopting
+    organisation may use</li>
+  </ul>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 OOS ≠ non-compliant</p>
+    <p>Marking a policy as out of scope for this shared initiative does not mean the
+    underlying control is unimportant or unaddressed. Adopting organisations should
+    handle OOS controls through their own custom policies, manual attestation, or
+    compensating controls appropriate to their environment. The <code>out-of-scope.json</code>
+    register provides a documented rationale for each exclusion that can be shared
+    with auditors.</p>
+  </div>
+
+  <div class="callout">
+    <p class="callout-label">ℹ Two-tier OOS register</p>
+    <p>Organise your OOS register as two separate files listed under <code>global_ignore</code> in the config:</p>
+    <ul>
+      <li><strong><code>global-ignore.json</code></strong> — excluded from <em>all</em> frameworks (process controls, In-Guest agent, Manual-effect policies). Shared across NZISM, IRAP, ISO 27001, etc.</li>
+      <li><strong><code>&lt;standard&gt;-ignore.json</code></strong> — excluded from this standard only. A policy here can still appear in another standard's initiative.</li>
+    </ul>
+    <pre style="margin:0.5em 0 0"><code>"global_ignore": [
+  "data/mappings/global-ignore.json",
+  "data/mappings/nzism-ignore.json"
+]</code></pre>
+  </div>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Note on [Preview]: policies</p>
+    <p><code>[Preview]:</code> policies are <strong>automatically excluded</strong> at engine time and do NOT appear in <code>oos-candidates.json</code>. They are tracked in <code>out-of-scope.json</code> under <code>"source": "auto-preview"</code> and will be flagged for reconsideration when they go GA. You do not need to add them to your OOS register manually.</p>
+  </div>
+
+  <h2>Process</h2>
+  <ol>
+    <li>Open <code>out\&lt;your-output-folder&gt;\oos-candidates.json</code></li>
+    <li>Review each entry — check <code>display_name</code> and <code>oos_reason</code></li>
+    <li>For entries you <strong>agree with</strong>: decide which register it belongs in, copy the entry to that file, add <code>oos_date</code> (today's date), and remove the <code>first_seen_control</code> field</li>
+    <li>For entries you <strong>disagree with</strong>: leave them — they are suggestions only and will be re-proposed next run</li>
+    <li>After updating an OOS register file: delete the mapping store, then re-run</li>
+  </ol>
+
+  <h3>OOS register entry format</h3>
+<pre><code>{
+  "policy_id": "/providers/Microsoft.Authorization/policyDefinitions/221aac80-...",
+  "display_name": "[Preview]: ChangeTracking extension — Windows VM",
+  "reason": "Requires ChangeTracking agent pre-deployed on each VM — not generically enforceable across agencies.",
+  "oos_date": "2025-09-03"
+}</code></pre>
+
+  <div class="callout">
+    <p class="callout-label">ℹ Policy ID format</p>
+    <p>You can use either the full ARM resource path (<code>/providers/Microsoft.Authorization/...</code>) or just the bare GUID — the tool normalises both automatically.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 8. OOS RECONSIDERED ===== -->
+  <h1>8. Handling OOS Reconsidered</h1>
+
+  <p>The file <code>oos-reconsidered.json</code> only appears when the system detects that
+  a previously excluded policy has changed state. Two triggers:</p>
+
+  <table>
+    <thead><tr><th>Trigger</th><th>What happened</th><th>Action</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Preview → GA</strong></td>
+        <td>A policy that was <code>[Preview]:</code> when OOS'd now has a GA display name in the catalogue — Microsoft shipped it</td>
+        <td>Remove from the relevant OOS register file. Delete mapping store. Re-run — it will now be proposed fresh.</td>
+      </tr>
+      <tr>
+        <td><strong>Policy removed</strong></td>
+        <td>A policy in your OOS register no longer exists in the Azure built-in catalogue — deprecated or replaced</td>
+        <td>Remove from the relevant OOS register file (it's irrelevant). Optionally note in project records if it had a replacement.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Why this matters annually</p>
+    <p>Microsoft ships new GA policies regularly. Policies that were legitimately preview-excluded twelve months ago may now be production-ready and appropriate to include. The staleness check runs automatically every time and ensures the OOS register doesn't become stale cruft.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 9. PENDING REVIEW ===== -->
+  <h1>9. Working the Pending Review Queue</h1>
+
+  <p>
+    Pending review items are controls where the LLM proposed one or more built-in policy
+    mappings but either (a) the confidence score was below the auto-approve threshold, or
+    (b) <code>auto_approve</code> is set to <code>false</code> in the config. These require
+    a human decision requiring sign-off from your standard's governing authority.
+  </p>
+
+  <h2>9.1 View proposals</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct review --config config\&lt;your-config&gt;.json</code></pre>
+  <p>Each pending item shows:</p>
+<pre><code>[0.82] 06.2.5.C.01: A vulnerability assessment solution should be enabled on your virtual machines
+         keyword baseline; matched on: vulnerability, assessment</code></pre>
+  <p>Format: <code>[confidence] control-id: proposed-policy-name</code> followed by the rationale.</p>
+
+  <h2>9.2 Authority sign-off step</h2>
+  <p>Before finalising, share the pending proposals with the relevant authority for your
+  standard — the body responsible for publishing and maintaining the framework (e.g. the
+  national cyber security centre, a certification body, or your organisation's CISO).
+  They review whether each control→policy mapping accurately represents the standard's
+  intent.</p>
+  <p>Share the <code>ct review</code> output and the rationales from the mapping store.
+  Incorporate their feedback by editing the mapping store before the next run.</p>
+
+  <h2>9.3 Approve or reject in the mapping store</h2>
+  <p>Open your mapping store file (e.g. <code>data\mappings\nzism.json</code>). Find the control by its id and change the decision field:</p>
+<pre><code><span class="comment">// Approve a mapping (policy correctly covers this control)</span>
+"decision": "review"  →  "decision": "include"
+
+<span class="comment">// Reject a mapping (no appropriate built-in policy found)</span>
+"decision": "review"  →  "decision": "ignore"</code></pre>
+  <p>Save the file, then re-run to rebuild the initiative with the updated decisions:</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct run --config config\&lt;your-config&gt;.json</code></pre>
+  <p>Approved controls now appear in <code>policySet.json</code>. Ignored controls are excluded.</p>
+
+  <h2>9.4 First-pass strategy — use auto_approve</h2>
+  <p>For an initial first-cut output, set <code>auto_approve: true</code> and
+  <code>confidence_threshold: 0.7</code> in the config. This auto-approves high-confidence
+  proposals so you get a populated initiative immediately. Review the auto-approved set as
+  a batch, then switch back to <code>auto_approve: false</code> for the final
+  authority sign-off pass.</p>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Batch vs individual review</p>
+    <p>The mapping store is a plain JSON file. For bulk approvals, find all <code>"decision": "review"</code> entries with confidence above your threshold and change them in one edit — no need to process one at a time.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 10. DEPLOYING ===== -->
+  <h1>10. Deploying the Initiative</h1>
+
+  <h2>10.1 Validate first (dry run)</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> cd out\&lt;your-output-folder&gt;
+<span class="ps1-prompt">PS&gt;</span> az deployment sub what-if `
+    --location australiaeast `
+    --template-file main.bicep `
+    --name &lt;initiative-name&gt;   <span class="comment"># e.g. nzism-3-9</span></code></pre>
+  <p>The what-if output shows one <code>policySetDefinitions</code> resource and one
+  <code>policyAssignments</code> resource to be created — no changes to existing resources.</p>
+
+  <h2>10.2 Deploy</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> az deployment sub create `
+    --location australiaeast `
+    --template-file main.bicep `
+    --name &lt;initiative-name&gt;   <span class="comment"># e.g. nzism-3-9</span></code></pre>
+
+  <div class="callout">
+    <p class="callout-label">ℹ Permissions required</p>
+    <p>You need <strong>Resource Policy Contributor</strong> or <strong>Owner</strong> on the target subscription. The deployment creates the initiative definition and an audit-only assignment (<code>enforcementMode: DoNotEnforce</code>).</p>
+  </div>
+
+  <h2>10.3 Verify in the portal</h2>
+  <p>Navigate to: <strong>Azure Portal → Defender for Cloud → Regulatory compliance</strong></p>
+  <p>The "New Zealand ISM" standard appears once assigned. Compliance data populates within
+  approximately 24 hours as the policy engine evaluates your resources.</p>
+
+  <h2>10.4 Clean up (test deployments only)</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> az policy assignment delete --name &lt;initiative-name&gt;-audit
+<span class="ps1-prompt">PS&gt;</span> az policy set-definition delete --name &lt;initiative-name&gt;</code></pre>
+
+  <hr>
+
+  <!-- ===== 11. ANNUAL UPDATE CYCLE ===== -->
+  <h1>11. The Annual Update Cycle</h1>
+
+  <p>When the standard authority publishes a new version:</p>
+
+  <ol>
+    <li><strong>Export the new CSV</strong> from the updated standard and place it in <code>data\source\</code>. Update <code>ingest.source</code> in your config to point to the new file.</li>
+    <li><strong>Update <code>framework.version</code></strong> in the config (e.g. <code>"3.9"</code> → <code>"4.0"</code>). This sets the ISM version string in the initiative description.</li>
+    <li><strong>Bump <code>build.initiative_version</code></strong> semver (e.g. <code>"1.0.0"</code> → <code>"1.1.0"</code>). This is independent of the standard's document version — it tracks your policy set changes.</li>
+    <li><strong>Do NOT delete the mapping store.</strong> Carry-forward means only truly new controls need fresh LLM calls. Controls whose text has changed will be re-proposed; unchanged controls reuse prior decisions. A typical annual delta is 30–90 new or modified controls.</li>
+    <li><strong>Run</strong> <code>ct review</code> and work through the three queues: OOS Reconsidered first, then OOS Candidates, then Pending Review.</li>
+    <li><strong>Re-deploy</strong> with the new initiative version.</li>
+  </ol>
+
+  <div class="callout warn">
+    <p class="callout-label">⚠ Back up the mapping store</p>
+    <p><code>data\mappings\&lt;your-framework&gt;.json</code> is your year-over-year institutional knowledge — the curated set of human-approved control→policy decisions. Check it into source control (Git). Losing it means re-running all LLM calls from scratch and repeating the authority sign-off cycle.</p>
+  </div>
+
+  <hr>
+
+  <!-- ===== 12. CURRENT LIMITATIONS ===== -->
+  <h1>12. Current Limitations</h1>
+
+  <table>
+    <thead><tr><th>Limitation</th><th>Status</th><th>Current workaround</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Only CSV input (no website URL or PDF ingest)</td>
+        <td><span class="badge grey">Roadmap</span></td>
+        <td>Export manually from the standard's publisher website. <em>(NZISM: <a href="https://www.nzism.gcsb.govt.nz/ism-document">nzism.gcsb.govt.nz</a>)</em></td>
+      </tr>
+      <tr>
+        <td>Pending review requires hand-editing the mapping store JSON file</td>
+        <td><span class="badge grey">Roadmap</span></td>
+        <td>Open in VS Code, find/replace <code>"decision": "review"</code> → <code>"decision": "include"</code> for batch approvals</td>
+      </tr>
+      <tr>
+        <td>Chapter/subset run requires a filtered CSV</td>
+        <td><span class="badge grey">Roadmap</span></td>
+        <td>One-liner Python filter (see Section 4.1)</td>
+      </tr>
+      <tr>
+        <td>Full-framework run: one LLM call per control (e.g. NZISM: ~1,422 calls)</td>
+        <td>By design</td>
+        <td>Use <code>engine: keyword</code> for a free first-cut; switch to <code>engine: agentic</code> for the quality pass. Carry-forward means subsequent runs are near-free — only new/changed controls trigger the LLM.</td>
+      </tr>
+      <tr>
+        <td>Custom policy generation (controls with no built-in coverage)</td>
+        <td><span class="badge grey">Roadmap</span></td>
+        <td>Mark affected controls as <code>ignore</code> and note them for future coverage</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <hr>
+
+  <!-- ===== 13. TROUBLESHOOTING ===== -->
+  <h1>13. Troubleshooting</h1>
+
+  <h2>13.1 Content filter / jailbreak detection (Azure AI Foundry)</h2>
+  <p>When using Azure AI Foundry as the classifier, Azure OpenAI's content safety system
+  may block a request with a <strong>400 content_filter</strong> error. The error message
+  will include <code>"jailbreak": {"detected": true, "filtered": true}</code>.</p>
+
+  <p><strong>Why it happens:</strong> Azure's jailbreak detector monitors for prompt
+  patterns that resemble attempts to override model safety instructions. Security
+  standards like NZISM contain control text covering topics such as penetration testing,
+  vulnerability exploitation, malicious code, and classified information handling.
+  Combined with the classifier's structured instructions, this can trigger a false positive.</p>
+
+  <p><strong>What the tool does automatically:</strong> the classifier catches the error,
+  prints a warning, and falls back to the heuristic (token-overlap) classifier for that
+  specific control. The run continues uninterrupted. You will see:</p>
+<pre><code>   ⚠  content filter: 16.1.27.C.02 — using heuristic fallback</code></pre>
+  <p>The heuristic result for that control is saved to the mapping store like any other
+  result and the run continues to the next control.</p>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 To retry a content-filtered control with the LLM</p>
+    <p>Open your mapping store JSON file, find the entry for the flagged control id, and
+    delete that entry. On the next <code>ct run</code>, the engine will re-attempt that
+    control with the LLM. If it triggers the filter again, the heuristic fallback will
+    apply again — consider reviewing and manually setting the decision for controls that
+    consistently trigger the filter.</p>
+  </div>
+
+  <div class="callout">
+    <p class="callout-label">ℹ If your run crashed before the fix</p>
+    <p>If a previous run crashed with a content filter error before the automatic fallback
+    was in place, your mapping store still contains all decisions made up to the crash
+    point. Simply re-run — the carry-forward mechanism will skip decided controls and
+    the classifier will only re-attempt the ones not yet decided. No work is lost.</p>
+  </div>
+
+  <h2>13.2 Slow runs — improving throughput</h2>
+  <p>The agentic mapper calls the LLM once per control sequentially. For a full
+  1,422-control run, this typically takes 8–20 minutes depending on API rate limits.
+  Strategies to reduce time:</p>
+  <ul>
+    <li><strong>Run a chapter subset first</strong> — test with Chapter 6 (16 controls,
+    Section 4.1) to validate classifier quality before committing to the full run.</li>
+    <li><strong>Use <code>engine: keyword</code> for a free first cut</strong> — produces
+    a baseline initiative instantly. Switch to <code>engine: agentic</code> and
+    <code>auto_approve: false</code> for the quality pass where the LLM only processes
+    controls not yet decided.</li>
+    <li><strong>Re-runs are near-free</strong> — carry-forward means only new or undecided
+    controls trigger LLM calls. After the first full run, subsequent annual updates
+    typically involve 30–90 new controls, not 1,422.</li>
+  </ul>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Run interrupted? Just re-run</p>
+    <p>If a run is interrupted (Ctrl+C, crash, content filter before fallback was added),
+    the mapping store has everything decided so far. Re-running picks up from where it
+    stopped — only undecided controls trigger new LLM calls.</p>
+  </div>
+
+  <hr>
+
+  <div class="callout tip" style="margin-top:2.5em">
+    <p class="callout-label">📋 Quick reference — common commands</p>
+    <table style="margin:0.5em 0 0">
+      <thead><tr><th>Task</th><th>Command</th></tr></thead>
+      <tbody>
+        <tr><td>Offline smoke test (no cloud)</td><td><code>ct run --config config\sample.json</code></td></tr>
+        <tr><td>Full pipeline run</td><td><code>ct run --config config\&lt;your-config&gt;.json</code></td></tr>
+        <tr><td>Review all queues</td><td><code>ct review --config config\&lt;your-config&gt;.json</code></td></tr>
+        <tr><td>Reset mapping store</td><td><code>del data\mappings\&lt;your-framework&gt;.json</code></td></tr>
+        <tr><td>Deploy to Azure</td><td><code>cd out\&lt;output-folder&gt; &amp;&amp; az deployment sub create --location australiaeast --template-file main.bicep --name &lt;initiative-name&gt;</code></td></tr>
+        <tr><td>Remove test deployment</td><td><code>az policy assignment delete --name &lt;initiative-name&gt;-audit</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:3em;color:#6b7280;font-size:0.85em;text-align:center">
+    Control Translator Process Guide · v1.0 · Generated by Microsoft Copilot
+  </p>
+
+</main>
+</body>
+</html>

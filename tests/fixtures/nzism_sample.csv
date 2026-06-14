@@ -1,0 +1,5 @@
+Chapter,Section,Sub-Section,Block,Paragraph,Classifications,Compliance,CID,ControlText
+1. About information security,1.1. Understanding and using the NZISM,Objective,,1.1.1.,,,,
+6. Information security monitoring,6.2. Vulnerability management,Rationale & Controls,,6.2.5.C.01.,All Classifications,Should,1066,SAMPLE control text: agencies should conduct vulnerability assessments of systems.
+16. Access control and passwords,16.1. Identification and authentication,Rationale & Controls,,16.1.32.C.01.,All Classifications,Must Not,1844,SAMPLE control text: shared accounts must not be used for privileged access.
+11. Communications infrastructure,11.8. Cabling,Rationale & Controls,,11.8.11.C-02,All Classifications,Should,9999,SAMPLE control text with a malformed paragraph id to exercise normalisation.

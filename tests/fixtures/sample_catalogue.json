@@ -1,0 +1,46 @@
+{
+  "catalog": {
+    "uuid": "00000000-0000-0000-0000-000000000000",
+    "metadata": {
+      "title": "SAMPLE Placeholder Standard",
+      "version": "1.0",
+      "oscal-version": "1.1.2"
+    },
+    "groups": [
+      {
+        "id": "DP",
+        "title": "Data Protection",
+        "controls": [
+          {
+            "id": "SAMPLE-DP-1",
+            "title": "Protect data at rest with encryption",
+            "props": [{ "name": "classification", "value": "MUST" }],
+            "parts": [
+              {
+                "name": "statement",
+                "prose": "Storage accounts and managed disks must enforce encryption at rest using customer-managed keys."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "LM",
+        "title": "Logging and Monitoring",
+        "controls": [
+          {
+            "id": "SAMPLE-LM-1",
+            "title": "Enable logging and monitoring",
+            "props": [{ "name": "classification", "value": "SHOULD" }],
+            "parts": [
+              {
+                "name": "statement",
+                "prose": "Resources must send diagnostic telemetry to a central workspace for monitoring."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
