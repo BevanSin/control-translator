@@ -12,8 +12,8 @@
   "mapping": {
     "engine": "agentic",
     "classifier": "azure-openai",
-    "model": "<your-deployment-name>",
-    "foundry_base_url": "https://<resource-name>.services.ai.azure.com/openai/v1",
+    "model": "${AZURE_OPENAI_DEPLOYMENT}",
+    "foundry_base_url": "${AZURE_OPENAI_ENDPOINT}",
     "store": "data/mappings/nzism.json",
     "global_ignore": ["data/mappings/global-ignore.json"],
     "auto_approve": true,

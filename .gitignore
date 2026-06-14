@@ -40,6 +40,22 @@ __pycache__/
 dist/
 build/
 
+# ── secrets ───────────────────────────────────────────────────────────────────
+# .env holds your real API keys and endpoints — never commit it.
+# .env.example (no real values) IS committed as a setup guide.
+.env
+.env.*
+!.env.example
+
+# ── user-specific configs (contain real endpoints / deployment names) ─────────
+# Template configs (nzism-azure.json, sample.json etc.) use ${VAR} placeholders
+# and ARE committed. Your personal named configs are gitignored by convention.
+config/*-local.json
+config/*-local.yaml
+config/*-myjob.json
+config/nzism-gpt-test.json
+config/nzism-claude-test.json
+
 # ── editor / OS ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
