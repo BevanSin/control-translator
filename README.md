@@ -1,6 +1,6 @@
 # control-translator
 
-> Working name — rename freely. CLI command: `ct`.
+> CLI command: `ct`.
 
 An **agentic interpretation engine** that translates any published security standard
 into deployable **cloud compliance controls**, grounded in an **OSCAL** control
