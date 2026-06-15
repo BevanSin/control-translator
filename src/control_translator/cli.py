@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -83,6 +84,92 @@ def cmd_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_review(args: argparse.Namespace) -> int:
+    """Export pending review items and OOS candidates to Excel for authority sign-off."""
+    config = _load(args.config)
+    fw = config["framework"]
+
+    # Run pipeline to get current mapping state (mostly carry-forward — fast)
+    print("Collecting review state...")
+    result = run_pipeline(config, do_distribute=False)
+    pending = result.mapping.pending_review()
+
+    # OOS candidates: prefer the latest bundle file on disk over the pipeline result
+    # (the pipeline re-run may have 0 new candidates if everything was carry-forward)
+    out_dir  = config.get("out_dir", "out")
+    slug     = f"{fw['id']}-{fw['version']}"
+    oos_path = os.path.join(out_dir, slug, "oos-candidates.json")
+    if result.bundle and result.bundle.files.get("oos-candidates.json"):
+        oos_cands = json.loads(result.bundle.files["oos-candidates.json"])
+    elif os.path.exists(oos_path):
+        with open(oos_path, encoding="utf-8") as fh:
+            oos_cands = json.load(fh)
+        print(f"  (OOS candidates loaded from existing bundle: {oos_path})")
+    else:
+        oos_cands = []
+
+    # For preview excluded, also check bundle file on disk as fallback
+    preview = result.mapping.preview_excluded or []
+    if not preview:
+        prev_path = os.path.join(out_dir, slug, "out-of-scope.json")
+        if os.path.exists(prev_path):
+            with open(prev_path, encoding="utf-8") as fh:
+                oos_data = json.load(fh)
+            preview = [e for e in oos_data if e.get("source") == "auto-preview"]
+
+    print(f"  {len(pending)} pending review  |  {len(oos_cands)} OOS candidates  |  {len(preview)} preview-excluded")
+
+    if not pending and not oos_cands:
+        print("\n  Nothing to review right now.")
+        print("  This happens when auto_approve=true and all decisions are carry-forward.")
+        print("  To generate pending reviews: set auto_approve=false in your config and re-run.")
+        print("  OOS candidates are generated during classification runs, not carry-forward runs.")
+        if os.path.exists(oos_path):
+            print(f"\n  Tip: OOS candidates from the last full run exist at:")
+            print(f"    {oos_path}")
+            print(f"  Re-run ct export-review — the updated command reads this file automatically.")
+        return 0
+
+    from .review.excel import export_review
+    export_review(result, output_path=args.output,
+                  framework_id=fw["id"], version=fw["version"],
+                  oos_register_path=config["mapping"].get("global_ignore"),
+                  oos_candidates=oos_cands,
+                  preview_excluded=preview)
+    print(f"\nReview workbook written → {args.output}")
+    print("Open in Excel, fill the Decision columns (yellow cells), save, then:")
+    print(f"  ct import-review --config {args.config} --input {args.output}")
+    return 0
+
+
+def cmd_import_review(args: argparse.Namespace) -> int:
+    """Read decisions from a completed review workbook and update the mapping store."""
+    config = _load(args.config)
+    mcfg = config["mapping"]
+    gi = mcfg.get("global_ignore", [])
+    if isinstance(gi, str): gi = [gi]
+
+    from .review.excel import import_review
+    summary = import_review(
+        args.input,
+        mapping_store_path=mcfg["store"],
+        oos_register_paths=gi,
+        corrections_path=mcfg.get("corrections"),
+    )
+    total = summary["include"] + summary["ignore"] + summary["skipped"]
+    print(f"\nImport complete:")
+    print(f"  {summary['include']:>4} decisions set to include")
+    print(f"  {summary['ignore']:>4} decisions set to ignore")
+    print(f"  {summary['skipped']:>4} skipped (blank or 'Skip')")
+    if summary["oos_added"]:
+        print(f"  {summary['oos_added']:>4} OOS candidates added to nzism-ignore")
+    if summary["oos_global"]:
+        print(f"  {summary['oos_global']:>4} OOS candidates added to global-ignore")
+    print(f"\nRe-run to rebuild the initiative with updated decisions:")
+    print(f"  ct run --config {args.config}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ct", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +183,20 @@ def main(argv: list[str] | None = None) -> int:
     p_rev = sub.add_parser("review", help="list mappings awaiting authority sign-off")
     p_rev.add_argument("--config", required=True)
     p_rev.set_defaults(func=cmd_review)
+
+    p_exp = sub.add_parser("export-review",
+                            help="export pending review items to Excel")
+    p_exp.add_argument("--config", required=True)
+    p_exp.add_argument("--output", default="review.xlsx",
+                       help="output Excel file (default: review.xlsx)")
+    p_exp.set_defaults(func=cmd_export_review)
+
+    p_imp = sub.add_parser("import-review",
+                            help="import decisions from completed review workbook")
+    p_imp.add_argument("--config", required=True)
+    p_imp.add_argument("--input", required=True,
+                       help="completed review Excel file")
+    p_imp.set_defaults(func=cmd_import_review)
 
     args = parser.parse_args(argv)
     return args.func(args)

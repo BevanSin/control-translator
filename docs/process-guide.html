@@ -657,6 +657,27 @@ print(len(rows), 'controls written')
   <p>Share the <code>ct review</code> output and the rationales from the mapping store.
   Incorporate their feedback by editing the mapping store before the next run.</p>
 
+  <h2>9.2b Excel export / import (recommended for authority sign-off)</h2>
+  <p>Rather than hand-editing the JSON store, export the entire review queue to Excel,
+  share it with the authority (e.g. GCSB/NCSC), and import their decisions back in one step.</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> pip install openpyxl                    <span class="comment"># one-time</span>
+<span class="ps1-prompt">PS&gt;</span> ct export-review --config config\&lt;your-config&gt;.json --output review.xlsx</code></pre>
+  <p>The workbook has three sheets:</p>
+  <ul>
+    <li><strong>Pending Review</strong> — control text, proposed policy, confidence, LLM rationale, and a <span style="background:#FFFDE7;padding:1px 5px;border-radius:3px;font-size:0.9em">yellow Decision column</span> with a dropdown: <em>Include / Ignore / Skip</em></li>
+    <li><strong>OOS Candidates</strong> — policies the LLM flagged, with dropdown: <em>Add to nzism-ignore / Global ignore / Skip</em></li>
+    <li><strong>Preview Excluded</strong> — informational list of auto-filtered <code>[Preview]:</code> policies</li>
+  </ul>
+  <p>Share <code>review.xlsx</code> with the authority. They fill in the Decision columns and return the file. Then import:</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> ct import-review --config config\&lt;your-config&gt;.json --input review.xlsx
+<span class="ps1-prompt">PS&gt;</span> ct run --config config\&lt;your-config&gt;.json   <span class="comment"># rebuild with approved decisions</span></code></pre>
+  <div class="callout tip">
+    <p class="callout-label">💡 OOS candidates in the workbook</p>
+    <p>The OOS Candidates sheet lets the authority mark policies for
+    <code>nzism-ignore.json</code> (NZISM-specific) or <code>global-ignore.json</code>
+    (all standards). Import writes them directly — no manual JSON editing required.</p>
+  </div>
+
   <h2>9.3 Approve or reject in the mapping store</h2>
   <p>Open your mapping store file (e.g. <code>data\mappings\nzism.json</code>). Find the control by its id and change the decision field:</p>
 <pre><code><span class="comment">// Approve a mapping (policy correctly covers this control)</span>
@@ -678,6 +699,16 @@ print(len(rows), 'controls written')
   <div class="callout tip">
     <p class="callout-label">💡 Batch vs individual review</p>
     <p>The mapping store is a plain JSON file. For bulk approvals, find all <code>"decision": "review"</code> entries with confidence above your threshold and change them in one edit — no need to process one at a time.</p>
+  </div>
+
+  <div class="callout" style="margin-top:1.5em">
+    <p class="callout-label">ℹ Two independent version numbers</p>
+    <p>The initiative has <strong>two completely separate version numbers</strong> that should never be coupled:</p>
+    <ul>
+      <li><strong><code>build.initiative_version</code></strong> (e.g. <code>1.0.0</code>, <code>1.1.0</code>) — <em>your</em> deployment semver. Bump it whenever you change the policy set: add a control, remove an OOS policy, update a parameter. This is what Azure tracks for deployment management.</li>
+      <li><strong><code>framework.version</code></strong> (e.g. <code>3.9</code>) — the standard document version. Appears only in the initiative <em>description</em> text (<code>NZISM v3.9. ...</code>). Updating the standard to v4.0 does <strong>not</strong> automatically change the initiative version — that is your decision, based on what policy set changes you make in response.</li>
+    </ul>
+    <p>Example: NZISM publishes v4.0. You update <code>framework.version: "4.0"</code> and, after reviewing the delta, decide to add 12 new controls and remove 3 OOS entries. You bump <code>initiative_version</code> from <code>1.2.0</code> to <code>1.3.0</code>. The description now reads <em>"NZISM v4.0. ..."</em> and Azure sees a v1.3.0 initiative — the two versions reflect two different things.</p>
   </div>
 
   <hr>

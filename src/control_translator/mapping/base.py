@@ -29,6 +29,9 @@ class Mapper(ABC):
     def set_oos_context(self, oos: list[dict]) -> None:
         """Pass the existing OOS register so the mapper/classifier can pattern-match."""
 
+    def set_corrections(self, corrections: list[dict]) -> None:
+        """Pass human corrections as few-shot examples. Default: no-op."""
+
     @abstractmethod
     def propose(self, control: Control, policies: list[PolicyDefinition]) -> Proposal:
         ...
@@ -49,5 +52,21 @@ def get_mapper(kind: str, options: dict | None = None) -> Mapper:
             base_url=options.get("foundry_base_url"),
             api_key=options.get("api_key"),
             api_version=options.get("azure_api_version"))
-        return AgenticMapper(classifier=classifier, top_k=options.get("top_k", 12))
+
+        # Retriever: "embedding" uses semantic search; default "tfidf" is lexical
+        retrieval_kind = options.get("retrieval", "tfidf").lower()
+        if retrieval_kind == "embedding":
+            from .embedding import EmbeddingRetriever
+            retriever = EmbeddingRetriever(
+                endpoint=options.get("embedding_endpoint") or options.get("foundry_base_url"),
+                model=options.get("embedding_model", "text-embedding-3-small"),
+                cache_base=options.get("embedding_cache", "data/cache/embeddings"),
+                api_key=options.get("api_key"),
+            )
+        else:
+            from .retrieval import TfidfRetriever
+            retriever = TfidfRetriever()
+
+        return AgenticMapper(classifier=classifier, retriever=retriever,
+                             top_k=options.get("top_k", 12))
     raise ValueError(f"unknown mapper: {kind!r}")

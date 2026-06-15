@@ -35,6 +35,9 @@ class AgenticMapper(Mapper):
     def set_oos_context(self, oos: list[dict]) -> None:
         self.classifier.set_oos_context(oos)
 
+    def set_corrections(self, corrections: list[dict]) -> None:
+        self.classifier.set_corrections(corrections)
+
     def propose(self, control: Control, policies: list[PolicyDefinition]) -> Proposal:
         if not self._fitted:
             self.prepare(policies)

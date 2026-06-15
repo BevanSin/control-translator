@@ -42,6 +42,9 @@ class Classifier(ABC):
     def set_oos_context(self, oos: list[dict]) -> None:
         """Supply the existing OOS register so the classifier can apply the same patterns."""
 
+    def set_corrections(self, corrections: list[dict]) -> None:
+        """Supply human corrections as few-shot examples for the LLM."""
+
     @abstractmethod
     def classify(self, control: Control,
                  shortlist: list[PolicyDefinition]) -> list[Assessment]:
@@ -148,7 +151,8 @@ _SCHEMA = {
 
 
 def _user_message(control: Control, shortlist: list[PolicyDefinition],
-                  oos_context: list[dict] | None = None) -> str:
+                  oos_context: list[dict] | None = None,
+                  corrections: list[dict] | None = None) -> str:
     strength = control.props.get("compliance") or control.props.get("classification") or ""
     candidates = "\n".join(
         f"[{i}] {p.display_name}\n    {p.description}" for i, p in enumerate(shortlist))
@@ -160,18 +164,27 @@ def _user_message(control: Control, shortlist: list[PolicyDefinition],
         if lines:
             oos_section = (f"\nEXISTING OUT-OF-SCOPE POLICIES (apply same reasoning to "
                            f"similar candidates):\n{lines}\n")
+
+    corr_section = ""
+    if corrections:
+        from .corrections import corrections_to_prompt_fragment
+        frag = corrections_to_prompt_fragment(corrections)
+        if frag:
+            corr_section = f"\n{frag}\n"
+
     return (f"CONTROL {control.id} ({strength})\n"
             f"Title: {control.title}\n"
             f"Requirement: {control.prose}"
-            f"{oos_section}\n\n"
+            f"{oos_section}{corr_section}\n\n"
             f"CANDIDATE BUILT-IN POLICIES:\n{candidates}")
 
 
 def _assess(client, model: str, effort: str, control: Control,
             shortlist: list[PolicyDefinition],
-            oos_context: list[dict] | None = None) -> list[Assessment]:
+            oos_context: list[dict] | None = None,
+            corrections: list[dict] | None = None) -> list[Assessment]:
     """Shared request/parse for any Anthropic Messages-API client."""
-    user = _user_message(control, shortlist, oos_context)
+    user = _user_message(control, shortlist, oos_context, corrections)
 
     def call(structured: bool, cache: bool):
         oc = {"effort": effort}
@@ -220,6 +233,9 @@ class AnthropicClassifier(Classifier):
     def set_oos_context(self, oos: list[dict]) -> None:
         self._oos = oos or []
 
+    def set_corrections(self, corrections: list[dict]) -> None:
+        self._corrections = corrections or []
+
     def _client_lazy(self):
         if self._client is None:
             import anthropic
@@ -230,7 +246,8 @@ class AnthropicClassifier(Classifier):
         if not shortlist:
             return []
         return _assess(self._client_lazy(), self.model, self.effort,
-                       control, shortlist, self._oos or None)
+                       control, shortlist, self._oos or None,
+                       self._corrections or None)
 
 
 class FoundryClassifier(Classifier):
@@ -363,9 +380,13 @@ class AzureOpenAIClassifier(Classifier):
         self._token_expires_at: float = 0.0
         self._credential = None
         self._oos: list[dict] = []
+        self._corrections: list[dict] = []
 
     def set_oos_context(self, oos: list[dict]) -> None:
         self._oos = oos or []
+
+    def set_corrections(self, corrections: list[dict]) -> None:
+        self._corrections = corrections or []
 
     def _get_client(self):
         import time

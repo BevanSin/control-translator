@@ -40,6 +40,7 @@ class MappingEngine:
     def __init__(self, mapper: Mapper, *, global_ignore: set[str] | None = None,
                  auto_approve: bool = False, confidence_threshold: float = 0.75,
                  oos_context: list[dict] | None = None,
+                 corrections: list[dict] | None = None,
                  preview_filter: bool = True,
                  verbose: bool = True,
                  concurrency: int = 5,
@@ -49,6 +50,7 @@ class MappingEngine:
         self.auto_approve         = auto_approve
         self.confidence_threshold = confidence_threshold
         self.oos_context          = oos_context or []
+        self.corrections          = corrections or []
         self.preview_filter       = preview_filter
         self.verbose              = verbose
         self.concurrency          = max(1, concurrency)
@@ -93,6 +95,10 @@ class MappingEngine:
 
         self.mapper.prepare(candidates)
         self.mapper.set_oos_context(self.oos_context)
+        self.mapper.set_corrections(self.corrections)
+        if self.corrections and self.verbose:
+            print(f"  Corrections: {len(self.corrections)} human overrides as few-shot examples",
+                  file=sys.stderr)
 
         # ── split: carry-forward vs needs-classification ──────────────────────
         all_controls  = list(catalog.controls())
@@ -182,7 +188,11 @@ class MappingEngine:
                 with results_lock:
                     result.mappings[ctrl.id] = entry
                     for pid, rec in new_oos:
-                        oos_seen.setdefault(pid, rec)
+                        if pid not in oos_seen:
+                            oos_seen[pid] = {**rec, "flagging_controls": [ctrl.id]}
+                        else:
+                            # accumulate every control that flagged this policy as OOS
+                            oos_seen[pid].setdefault("flagging_controls", []).append(ctrl.id)
                     # checkpoint-save every N controls so a kill only loses
                     # up to checkpoint_every decisions rather than everything
                     n_classified = sum(1 for m in result.mappings.values()
@@ -214,6 +224,12 @@ class MappingEngine:
                   f"{len(oos_seen)} OOS candidates",
                   file=sys.stderr)
 
+        # normalise: keep first_seen_control for backward compat, add flagging_controls count
+        for rec in oos_seen.values():
+            flagging = rec.get("flagging_controls", [])
+            if flagging and "first_seen_control" not in rec:
+                rec["first_seen_control"] = flagging[0]
+            rec["flagged_by_n_controls"] = len(flagging)
         result.oos_suggestions = list(oos_seen.values())
         result.preview_excluded = list(preview_seen.values())
         return result

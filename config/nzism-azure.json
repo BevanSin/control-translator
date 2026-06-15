@@ -15,10 +15,15 @@
     "model": "${AZURE_OPENAI_DEPLOYMENT}",
     "foundry_base_url": "${AZURE_OPENAI_ENDPOINT}",
     "store": "data/mappings/nzism.json",
-    "global_ignore": ["data/mappings/global-ignore.json"],
+    "global_ignore": [
+      "data/mappings/global-ignore.json",
+      "data/mappings/nzism-ignore.json"
+    ],
     "auto_approve": true,
     "confidence_threshold": 0.4,
-    "concurrency": 5
+    "concurrency": 5,
+    "corrections": "data/mappings/corrections.json",
+    "retrieval": "tfidf"
   },
   "build": {
     "type": "azure",

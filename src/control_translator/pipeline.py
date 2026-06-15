@@ -10,6 +10,7 @@ from .ingest import get_ingestor
 from .catalogue import get_catalogue
 from .mapping import (MappingEngine, MappingStore, load_global_ignore,
                       load_oos_records, check_oos_staleness, get_mapper)
+from .mapping.corrections import load_corrections
 from .build import get_builder
 from .validate import AzureValidator
 from .distribute import get_adapter
@@ -64,12 +65,14 @@ def run_pipeline(config: dict, *, do_distribute: bool = True) -> PipelineResult:
             f"|  {n_existing} carry-forward  |  "
             f"{n_controls - n_existing} to classify")
 
+    corrections = load_corrections(mcfg.get("corrections"))
     engine = MappingEngine(
         get_mapper(mcfg.get("engine", "keyword"), mcfg),
         global_ignore=load_global_ignore(mcfg.get("global_ignore")),
         auto_approve=mcfg.get("auto_approve", False),
         confidence_threshold=mcfg.get("confidence_threshold", 0.75),
         oos_context=oos,
+        corrections=corrections,
         preview_filter=mcfg.get("preview_filter", True),
         verbose=True,
         concurrency=mcfg.get("concurrency", 5),
