@@ -228,8 +228,7 @@ zism.json</code> loses all your curated decisions
   <p>From the <code>control-translator</code> folder in PowerShell:</p>
 <pre><code><span class="ps1-prompt">PS&gt;</span> python -m venv .venv
 <span class="ps1-prompt">PS&gt;</span> .venv\Scripts\Activate.ps1        <span class="comment"># prompt shows (.venv) when active</span>
-<span class="ps1-prompt">PS&gt;</span> pip install -e ".[azure]"          <span class="comment"># core + Azure built-in pull</span>
-<span class="ps1-prompt">PS&gt;</span> pip install "openai>=1.50"         <span class="comment"># add if using Azure AI Foundry / GPT</span></code></pre>
+<span class="ps1-prompt">PS&gt;</span> pip install -e ".[azure,openai]"   <span class="comment"># core + Azure ARM pull + GPT-4o-mini + numpy (needed for embedding retrieval)</span></code></pre>
 
   <div class="callout warn">
     <p class="callout-label">⚠ PowerShell activation blocked?</p>

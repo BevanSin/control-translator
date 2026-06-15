@@ -31,24 +31,41 @@ _BATCH_SIZE     = 100   # Azure OpenAI max per request
 
 
 def _build_client(endpoint: str | None, api_key: str | None):
-    """Build an AzureOpenAI client for embeddings."""
-    from openai import AzureOpenAI
-    ep = endpoint or os.environ.get("AZURE_EMBEDDING_ENDPOINT") or \
-         os.environ.get("AZURE_OPENAI_ENDPOINT", "")
+    """Build an OpenAI-compatible client for embeddings.
+
+    Handles two endpoint shapes automatically:
+    - Foundry (services.ai.azure.com/openai/v1): use openai.OpenAI with bearer token.
+    - Classic Azure OpenAI (openai.azure.com): use AzureOpenAI with api_version.
+    """
+    ep = (endpoint or os.environ.get("AZURE_EMBEDDING_ENDPOINT") or
+          os.environ.get("AZURE_OPENAI_ENDPOINT", "")).rstrip("/")
     if not ep:
         raise SystemExit(
             "Embedding retriever needs an endpoint. Set AZURE_EMBEDDING_ENDPOINT "
             "or mapping.embedding_endpoint in your config.")
     key = api_key or os.environ.get("AZURE_OPENAI_API_KEY")
-    if key:
-        return AzureOpenAI(api_key=key, azure_endpoint=ep,
+
+    if "services.ai.azure.com" in ep:
+        # Foundry OpenAI-compatible endpoint — use plain openai.OpenAI + bearer token.
+        # The endpoint already contains /openai/v1; AzureOpenAI would double-prefix it.
+        from openai import OpenAI
+        if key:
+            return OpenAI(base_url=ep, api_key=key)
+        from azure.identity import DefaultAzureCredential
+        cred = DefaultAzureCredential()
+        tok  = cred.get_token("https://ai.azure.com/.default")
+        return OpenAI(base_url=ep, api_key=tok.token)
+    else:
+        # Classic Azure OpenAI endpoint (*.openai.azure.com)
+        from openai import AzureOpenAI
+        if key:
+            return AzureOpenAI(api_key=key, azure_endpoint=ep,
+                               api_version="2025-01-01-preview")
+        from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+        provider = get_bearer_token_provider(
+            DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+        return AzureOpenAI(azure_ad_token_provider=provider, azure_endpoint=ep,
                            api_version="2025-01-01-preview")
-    # keyless — Entra ID
-    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-    provider = get_bearer_token_provider(
-        DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
-    return AzureOpenAI(azure_ad_token_provider=provider, azure_endpoint=ep,
-                       api_version="2025-01-01-preview")
 
 
 class EmbeddingRetriever(Retriever):
@@ -105,7 +122,7 @@ class EmbeddingRetriever(Retriever):
             guids = json.load(fh)
         return mat, guids
 
-    def prepare(self, policies: list[PolicyDefinition]) -> None:
+    def fit(self, policies: list[PolicyDefinition]) -> None:
         import numpy as np
         import sys
 

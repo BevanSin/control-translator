@@ -156,7 +156,7 @@ cd control-translator
 
 python -m venv .venv
 .venv\Scripts\Activate.ps1          # (.venv) prefix confirms activation
-pip install -e ".[azure]"
+pip install -e ".[azure,openai]"   # includes numpy for embedding retrieval
 
 ct run --config config\sample.json            # keyword baseline, no cloud
 ct run --config config\sample-agentic.json    # agentic mapper, offline heuristic
@@ -177,7 +177,7 @@ copy .env.example .env
 
 ### 2. Install with LLM support
 ```powershell
-pip install -e ".[azure,openai]"    # azure = ARM pull, openai = GPT-4o-mini via Foundry
+pip install -e ".[azure,openai]"    # azure = ARM pull, openai = GPT-4o-mini + numpy for embeddings
 ```
 
 ### 3. Authenticate and place your CSV

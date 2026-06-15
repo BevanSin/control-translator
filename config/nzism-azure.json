@@ -23,7 +23,9 @@
     "confidence_threshold": 0.4,
     "concurrency": 5,
     "corrections": "data/mappings/corrections.json",
-    "retrieval": "tfidf"
+    "retrieval":          "embedding",
+    "embedding_model":    "text-embedding-3-small",
+    "embedding_endpoint": "${AZURE_OPENAI_ENDPOINT}"
   },
   "build": {
     "type": "azure",
