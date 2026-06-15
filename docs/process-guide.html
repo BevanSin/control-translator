@@ -210,11 +210,14 @@
     the built-in policy cache. These are yours, not the tool's. If you copy or sync
     the full project folder from a shared location, always exclude <code>data/</code>:</p>
 <pre style="margin:0.5em 0 0"><code><span class="comment"># Correct: sync only code and config, never data</span>
-robocopy &lt;source&gt;\src    C:epos\control-translator\src    /MIR /NFL /NDL
-robocopy &lt;source&gt;\config C:epos\control-translator\config /MIR /NFL /NDL
+robocopy &lt;source&gt;\src    C:
+epos\control-translator\src    /MIR /NFL /NDL
+robocopy &lt;source&gt;\config C:
+epos\control-translator\config /MIR /NFL /NDL
 
 <span class="comment"># Wrong: this overwrites your mapping store and OOS register</span>
-<span class="comment"># robocopy &lt;source&gt; C:epos\control-translator /MIR   ← do not use</span></code></pre>
+<span class="comment"># robocopy &lt;source&gt; C:
+epos\control-translator /MIR   ← do not use</span></code></pre>
     <p>Overwriting <code>data\mappings
 zism.json</code> loses all your curated decisions
     and forces a full re-run. Overwriting <code>data\mappings\global-ignore.json</code>
@@ -288,6 +291,19 @@ zism.json</code> loses all your curated decisions
   ...
 }</code></pre>
 
+  <h3>Option C — Azure AI Inference (Phi-4, Llama, Mistral)</h3>
+  <p>Serverless endpoint on Azure AI Foundry — no dedicated deployment quota needed.
+  Works with Phi-4, Llama 3.3, Mistral, and others.</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> pip install azure-ai-inference</code></pre>
+  <p>Update the config mapping block:</p>
+<pre><code>"mapping": {
+  "engine":           "agentic",
+  "classifier":       "azure-inference",
+  "model":            "Phi-4",
+  "foundry_base_url": "${AZURE_OPENAI_ENDPOINT}",   <span class="comment">// your Foundry models endpoint</span>
+  ...
+}</code></pre>
+
   <h2>3.5 Verify the install</h2>
 <pre><code><span class="ps1-prompt">PS&gt;</span> ct run --config config\sample.json</code></pre>
   <p>Expected output: <code>approved: 1, pending review: 1</code> — this confirms the
@@ -338,6 +354,51 @@ print(len(rows), 'controls written')
     the full run just processes all controls instead of the subset.</p>
   </div>
 
+  <h2>4.2 Choose a classification profile (NZISM)</h2>
+  <p>NZISM controls include a <strong>Classifications</strong> field indicating which
+  security levels the control applies to. For a public-cloud deployment approved only
+  up to a certain level (e.g. NZ Government: up to Restricted), out-of-scope controls
+  can be filtered at ingest so they never reach the LLM — saving time and cost.</p>
+
+  <p>Set <code>ingest.classification_profile</code> in your config:</p>
+<pre><code>"ingest": {
+  "type":                    "nzism",
+  "source":                  "data/source/NZISM-3.9.csv",
+  "classification_profile":  "restricted"   <span class="comment">// all | restricted | protected</span>
+}</code></pre>
+
+  <table>
+    <thead><tr><th>Profile</th><th>Includes</th><th>Excludes</th><th>Use case</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>all</code></td>
+        <td>Every control</td>
+        <td>Nothing</td>
+        <td>Full catalogue, no filtering</td>
+      </tr>
+      <tr>
+        <td><strong><code>restricted</code></strong></td>
+        <td>All Classifications, Restricted/Sensitive, Unclassified</td>
+        <td>Secret, Top Secret, Confidential-only</td>
+        <td><strong>NZ Government Azure</strong> (NZISM v3.9: 1,216 of 1,422 controls)</td>
+      </tr>
+      <tr>
+        <td><code>protected</code></td>
+        <td>As restricted + Protected</td>
+        <td>Above Protected</td>
+        <td>AU Government — IRAP / ISM</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Impact on your run</p>
+    <p>With <code>restricted</code> profile on NZISM v3.9, 206 Secret/Top Secret controls
+    are excluded before any LLM call — reducing the run from 1,422 to 1,216 controls.
+    The excluded controls appear in <code>out-of-scope.json</code> with
+    <code>"source": "classification-filter"</code>.</p>
+  </div>
+
   <hr>
 
   <!-- ===== 5. RUNNING THE PIPELINE ===== -->
@@ -363,6 +424,17 @@ print(len(rows), 'controls written')
     <li><strong>Maps each control</strong> — retrieves the top-12 most similar built-in policies (TF-IDF shortlist), then sends each shortlist to the LLM classifier for include/ignore/OOS decisions with rationales.</li>
     <li><strong>Builds the initiative artefacts</strong> in <code>out\&lt;framework-id&gt;-&lt;version&gt;\</code>. <em>(NZISM example: <code>out\nzism-3.9\</code>.)</em></li>
   </ol>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 Speed up the run — parallel classification</p>
+    <p>The agentic mapper calls the LLM once per control. By default it runs 5 calls
+    concurrently (configurable via <code>mapping.concurrency</code>). With
+    <code>concurrency: 5</code> and GPT-4o-mini, a full 1,216-control run takes
+    approximately 35 minutes. Without parallelism it would take ~3 hours.</p>
+    <p>To adjust: <code>"concurrency": 8</code> if your rate limits allow; lower to
+    <code>3</code> if you see rate-limit errors. Rate-limit errors are logged as
+    <code>✗ error on &lt;control-id&gt;</code> and retried on the next run.</p>
+  </div>
 
   <h2>5.3 Progress output during the run</h2>
   <p>The pipeline streams progress to the terminal as it works. Each stage announces
@@ -423,6 +495,15 @@ print(len(rows), 'controls written')
   <span class="key">oos-candidates.json</span>     <span class="note">← LLM suggestions for review → promote to global-ignore</span>
   oos-reconsidered.json   <span class="note">← previously OOS'd policies that have changed (if any)</span>
   </div>
+
+  <h2>6.1b Inspect results quickly</h2>
+  <p>The <code>inspect.py</code> script gives a one-shot summary of the latest bundle,
+  mapping store, and OOS candidates — with correct UTF-8 encoding so special characters
+  display correctly on Windows:</p>
+<pre><code><span class="ps1-prompt">PS&gt;</span> python scripts\inspect.py              <span class="comment"># auto-discovers the most recent bundle</span>
+<span class="ps1-prompt">PS&gt;</span> python scripts\inspect.py out\nzism-3.9  <span class="comment"># specific bundle</span></code></pre>
+  <p>Output includes: controls covered, policy definitions, OOS candidates with reasons,
+  OOS reconsidered entries, and the mapping store decision split with a coverage bar.</p>
 
   <h2>6.2 Review with <code>ct review</code></h2>
 <pre><code><span class="ps1-prompt">PS&gt;</span> ct review --config config\&lt;your-config&gt;.json</code></pre>

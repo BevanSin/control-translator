@@ -1,292 +1,380 @@
 # control-translator
 
-> CLI command: `ct`.
+> Working name — rename freely. CLI command: `ct`.
 
 An **agentic interpretation engine** that translates any published security standard
 into deployable **cloud compliance controls**, grounded in an **OSCAL** control
 catalogue and emitted as native cloud policy artefacts.
 
-The first framework is **NZISM**; the first cloud provider is **Azure** (built-in
+The reference framework is **NZISM**; the reference cloud provider is **Azure** (built-in
 policy only). Both are plugins — the engine core is framework- and provider-agnostic.
 
 ## Why this exists
 
 Translating a national standard (e.g. NZISM) into an Azure Policy *Regulatory
-Compliance* initiative is, today, an annual hand-built spreadsheet exercise with a
-fragile publishing pathway. This project turns that into a repeatable pipeline whose
-only human-judgement step is reviewing the **delta** each revision — and whose output
-is a **custom** initiative any organisation can self-deploy into their own tenant,
-with no dependency on a central built-in-onboarding pathway.
+Compliance* initiative is an annual hand-built exercise with a fragile publishing
+pathway. This project turns that into a repeatable pipeline whose only human-judgement
+step is reviewing the **delta** each revision — and whose output is a **custom**
+initiative any organisation can self-deploy into their own tenant, with no dependency on
+a central built-in-onboarding pathway.
 
 ## Pipeline
 
 ```
-ingest -> catalogue -> map* -> build -> validate -> distribute
+ingest -> catalogue -> map -> build -> validate -> distribute
 ```
 
-| Stage | What it does | Provider/framework agnostic? |
-|-------|--------------|------------------------------|
-| **ingest** | published standard (doc/CSV) -> OSCAL catalogue | framework plugin |
+| Stage | What it does | Agnostic? |
+|-------|--------------|-----------|
+| **ingest** | published standard (CSV/PDF/URL) → OSCAL catalogue | framework plugin |
 | **catalogue** | pull provider built-in policy definitions | provider plugin |
-| **map** ★ | control -> built-in policy mapping (the core) | engine core |
-| **build** | mapping -> native control set (policySet + assignment + IaC) | provider plugin |
-| **validate** | schema lint + sandbox deploy (audit-only) | provider plugin |
-| **distribute** | publish artefact bundle | adapter (local / community / gov-repo) |
+| **map** ★ | control → built-in policy mapping (the core) | engine core |
+| **build** | mapping → native initiative (policySet + Bicep + IaC) | provider plugin |
+| **validate** | schema lint + (future) sandbox deploy | provider plugin |
+| **distribute** | publish artefact bundle | adapter |
 
-★ The mapping engine is the only genuinely novel component. Everything else is
-ingest, templating, or git plumbing.
+★ The mapping engine is the genuinely novel component. It runs retrieval shortlisting
+(TF-IDF) followed by LLM classification in parallel threads, with a durable carry-forward
+store so each annual revision only processes the delta.
 
 ## Module status
 
 | Module | Status |
 |--------|--------|
-| `models/oscal.py` | implemented (minimal OSCAL subset) |
-| `models/mapping.py`, `models/bundle.py` | implemented |
-| `ingest/fixture.py` | implemented (loads an OSCAL catalogue from disk) |
-| `ingest/nzism.py` | implemented — parses the NZISM CSV export (23 chapters, 1,422 controls) |
-| `catalogue/offline.py` | implemented (loads built-ins from a cached file) |
-| `catalogue/azure.py` | implemented — live ARM pull of built-in policy definitions (+ cache) |
-| `mapping/keyword.py` | implemented (deterministic baseline mapper) |
-| `mapping/retrieval.py` | implemented (TF-IDF shortlist; swap for embeddings later) |
-| `mapping/agentic.py` | implemented — retrieval shortlist → LLM classify |
-| `mapping/classifier.py` | `AnthropicClassifier` implemented (Claude, real); `HeuristicClassifier` offline stand-in |
-| `mapping/store.py` | implemented (durable mapping + global-ignore) |
-| `build/azure.py` | implemented (emits policySet + assignment + Bicep) |
-| `validate/azure.py` | **TODO** — schema lint + sandbox deploy |
-| `distribute/local.py` | implemented |
-| `distribute/community_policy.py`, `distribute/gov_repo.py` | **TODO** stubs |
+| `models/oscal.py` | Implemented — OSCAL catalogue, group, control; serialise/deserialise |
+| `models/mapping.py` | Implemented — MappingSet, ControlMapping, Decision enum, durable store |
+| `models/bundle.py` | Implemented — ArtifactBundle with file registry |
+| `ingest/fixture.py` | Implemented — loads OSCAL catalogue from a JSON fixture (offline tests) |
+| `ingest/nzism.py` | **Implemented** — NZISM CSV export → OSCAL (23 chapters, 1,422 controls); normalises CIDs, cleans prose, classification-profile filtering |
+| `catalogue/offline.py` | Implemented — loads built-in policies from a cached JSON file |
+| `catalogue/azure.py` | **Implemented** — live ARM pull of built-in policy definitions; caches result; filters `[Deprecated]`, `[Preview]`, Manual-effect policies by default |
+| `mapping/keyword.py` | Implemented — deterministic TF-IDF baseline (free, no LLM) |
+| `mapping/retrieval.py` | Implemented — TF-IDF shortlist; returns top-k candidates for the LLM |
+| `mapping/agentic.py` | **Implemented** — retrieval shortlist → LLM classify with OOS candidate detection; runs in parallel (ThreadPoolExecutor) |
+| `mapping/classifier.py` | **Implemented** — five classifiers: `heuristic` (offline), `anthropic` (Claude, first-party), `foundry` (Claude via Azure AI Foundry), `azure-openai` (GPT-4o/mini via Azure OpenAI or Foundry endpoint), `azure-inference` (Phi-4, Llama, Mistral via serverless endpoint). All include OOS candidate detection, content-filter fallback, and existing OOS list as context. |
+| `mapping/engine.py` | **Implemented** — carry-forward, preview auto-filter, global-ignore filter (normalised GUID matching), Manual-effect filter, parallel classification (configurable thread count), OOS staleness detection, progress output |
+| `mapping/store.py` | **Implemented** — durable mapping store, two-tier OOS register (single path or list of paths), staleness check (preview→GA, deprecated), normalised GUID comparison |
+| `build/azure.py` | **Implemented** — policySet + assignment + Bicep + deploy.sh; semver independent of standard version; NZISM control-group conventions; policy deduplication (one definition, multiple groupNames); parameter overrides; OOS + OOS-candidates + OOS-reconsidered bundle files |
+| `validate/azure.py` | Lint implemented (structural checks, group reference validation); sandbox deploy — TODO |
+| `distribute/local.py` | Implemented — writes versioned bundle to `out/` |
+| `distribute/community_policy.py` | TODO stub |
+| `distribute/gov_repo.py` | TODO stub |
+| `scripts/inspect.py` | **Implemented** — post-run bundle inspection (stats, OOS candidates, reconsidered entries, mapping store summary) |
+
+## Real-world results (NZISM v3.9, Restricted profile)
+
+First full automated run against the published NZISM v3.9:
+
+| Metric | Value |
+|--------|-------|
+| Controls in scope (Restricted profile) | 1,216 of 1,422 total |
+| Controls with Azure built-in coverage | 437 |
+| Policy definitions in initiative | 528 |
+| Policies covering multiple controls | 283 (55%) |
+| Preview policies auto-filtered | 181 |
+| Out-of-scope (Secret/Top Secret) auto-excluded | 206 |
+| LLM classifier | GPT-4o-mini via Azure AI Foundry |
+| Run time | ~35 minutes (5 parallel threads) |
+| Cost | < $1 in Azure AI compute |
+
+The initiative deploys as a custom Regulatory Compliance standard in
+**Defender for Cloud → Regulatory compliance**, identical in appearance to a
+Microsoft-published built-in standard.
 
 ## Scope
 
-- **In scope now:** built-in policy only, Azure, NZISM reference framework.
+- **In scope now:** built-in policy only, Azure, NZISM / any CSV-exportable standard.
 - **Future:** custom policy generation for controls with no built-in coverage;
-  additional cloud providers; additional frameworks. See `docs/future-work.md` for
-  captured ideas (custom per-agency control overlays, Must/Should initiative split,
-  URL-or-CSV control input).
+  additional cloud providers; additional frameworks. See `docs/future-work.md`.
 
 ## Prerequisites
 
 > Commands below assume **Windows (PowerShell)** as the default. macOS / Linux / WSL
 > equivalents are noted where they differ.
 
-| Requirement | When you need it | Notes |
-|-------------|------------------|-------|
-| **Python 3.10+** | always | 3.10, 3.11, 3.12, 3.13 all work — check with `py --version` |
-| **Azure CLI (`az`), logged in** | real run only | for the live ARM pull of built-in policies — [install](https://learn.microsoft.com/cli/azure/install-azure-cli) |
-| **`ANTHROPIC_API_KEY`** | real run only (agentic classifier) | from [console.anthropic.com](https://console.anthropic.com) |
+| Requirement | When needed | Notes |
+|-------------|-------------|-------|
+| **Python 3.10+** | Always | Check: `py --version`. 3.10–3.13 all work. |
+| **Git** | Always | Check: `git --version`. [git-scm.com](https://git-scm.com/download/win) |
+| **Azure CLI (`az`)** | Always | Built-in policy pull + Foundry keyless auth. [Install guide](https://learn.microsoft.com/cli/azure/install-azure-cli-windows) |
+| **LLM — Azure AI Foundry** | Agentic mapping | Deploy `gpt-4o-mini` in a Foundry project. See Section "Choosing the classifier". |
+| **LLM — Anthropic API key** | Agentic mapping | From [console.anthropic.com](https://console.anthropic.com) |
+| **LLM — Heuristic** | Testing only | No setup — runs fully offline. Lower quality. |
 
-If `py --version` already shows 3.10+, skip ahead to Quick start.
-
-### Installing Python 3.10+ (Windows)
-
-Easiest is **uv** ([astral.sh/uv](https://docs.astral.sh/uv/)) — it manages both the
-Python version and the virtualenv, no admin rights needed:
+### Installing Python (Windows)
 
 ```powershell
+# uv (recommended — no admin rights needed)
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 uv python install 3.12
-```
 
-Or install Python natively with **winget**:
-
-```powershell
+# or winget
 winget install Python.Python.3.12
 ```
 
-Product page: [python.org/downloads/windows](https://www.python.org/downloads/windows/).
-
-> **macOS:** `brew install python@3.12` · **Ubuntu/WSL:** `sudo apt install -y python3.12 python3.12-venv`
-> · uv installer (macOS/Linux): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+> **macOS:** `brew install python@3.12`  ·  **Ubuntu/WSL:** `sudo apt install -y python3.12 python3.12-venv`
 
 ## Data vs code — important separation
 
-The `data/` folder is **your working data**, not part of the tool:
+The `data/` folder is **your working data**, not part of the tool. Never overwrite it
+from a code sync — it contains your curated mapping decisions and OOS register.
 
 | Folder | What it is | Sync from repo? |
 |--------|-----------|-----------------|
-| `src/` | Tool source code | ✅ Yes |
-| `config/` | Config templates | ✅ Yes (but don't overwrite your named config) |
-| `data/mappings/` | Your mapping store + OOS registers | ❌ Never — these are yours |
-| `data/source/` | Your framework CSV exports | ❌ Never |
-| `data/cache/` | ARM policy cache (regenerates on first run) | ❌ Never |
+| `src/` | Tool source code | Yes |
+| `config/` | Config templates (contain `${VAR}` placeholders, not real secrets) | Yes |
+| `data/mappings/` | Your mapping store + OOS registers — institutional knowledge | **Never** |
+| `data/source/` | Your framework CSV exports | **Never** |
+| `data/cache/` | ARM policy cache (regenerates on first run) | **Never** |
 
-When pulling a newer version of the tool, **only sync `src/` and `config/`**:
 ```powershell
+# Correct — sync only code:
 robocopy <source>\src    C:\repos\control-translator\src    /MIR /NFL /NDL
 robocopy <source>\config C:\repos\control-translator\config /MIR /NFL /NDL
 ```
 
-Overwriting `data\mappings\nzism.json` loses all curated decisions and forces a full re-run. Overwriting `data\mappings\global-ignore.json` replaces your OOS register.
+## Secrets — environment variables and .env
+
+Config files use `${VAR_NAME}` placeholders for secrets. Supply real values via:
+
+1. A `.env` file in the project root (gitignored, loaded automatically):
+   ```
+   AZURE_OPENAI_ENDPOINT=https://<resource>.services.ai.azure.com/openai/v1
+   AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
+   ANTHROPIC_API_KEY=sk-ant-...
+   ```
+2. Shell environment variables set before running `ct`.
+
+Copy `.env.example` to `.env` and fill in your values. The `.env` file is gitignored and
+must never be committed.
 
 ## Quick start (offline demo, Windows)
 
 ```powershell
-# from the control-translator folder
-python -m venv .venv
-.venv\Scripts\Activate.ps1          # prompt should now show (.venv)
-pip install -e .
+git clone https://github.com/BevanSin/control-translator.git
+cd control-translator
 
-ct run --config config\sample.json            # keyword baseline mapper
-ct run --config config\sample-agentic.json    # agentic mapper, offline heuristic classifier
+python -m venv .venv
+.venv\Scripts\Activate.ps1          # (.venv) prefix confirms activation
+pip install -e ".[azure]"
+
+ct run --config config\sample.json            # keyword baseline, no cloud
+ct run --config config\sample-agentic.json    # agentic mapper, offline heuristic
 dir out\sample-1.0
 ```
 
-If PowerShell blocks the activation script, run
-`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first, or use cmd:
-`.venv\Scripts\activate.bat`.
+If `Activate.ps1` is blocked: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
 
-> **uv shortcut (no activation needed):** `uv venv; uv pip install -e .; uv run ct run --config config\sample.json`
-> **macOS / Linux:** `python3 -m venv .venv && source .venv/bin/activate`, then the same `ct` commands with `/` paths.
+The sample configs use placeholder fixtures — no cloud access required.
 
-The sample configs use **placeholder fixtures** (clearly fake controls and policy
-GUIDs) so the full pipeline runs with no cloud access.
+## Running it for real (NZISM → Azure → LLM)
 
-## Running it for real (NZISM → Azure → Claude)
-
+### 1. Set up secrets
 ```powershell
-.venv\Scripts\Activate.ps1
-pip install -e ".[yaml,agentic,azure]"      # yaml=config, agentic=Claude, azure=ARM pull
+copy .env.example .env
+# edit .env — fill in AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT
+```
 
-az login                                     # ARM token for the built-in policy pull
-$env:ANTHROPIC_API_KEY = "sk-ant-..."        # agentic classifier (this session only)
+### 2. Install with LLM support
+```powershell
+pip install -e ".[azure,openai]"    # azure = ARM pull, openai = GPT-4o-mini via Foundry
+```
 
+### 3. Authenticate and place your CSV
+```powershell
+az login --tenant <your-tenant-id>
 mkdir data\source -Force
 copy "C:\path\to\NZISM-ISM Document-V.-3.9-April-2025.csv" data\source\NZISM-3.9.csv
-
-ct run --config config\nzism-3.9.yaml
 ```
 
-First run pulls ~1,000+ built-in definitions (cached to `data\cache\` afterward),
-ingests the 1,422 NZISM controls, and runs the agentic mapper.
-
-### Choosing the classifier (incl. using your Azure sub instead of an Anthropic key)
-
-Set `mapping.classifier` in the config:
-
-| `classifier` | LLM | Auth / cost |
-|--------------|-----|-------------|
-| `heuristic` | none (token overlap) | **free, no signup** — runs fully offline. Lower quality; good for a first proof or baseline. |
-| `anthropic` | Claude (first-party) | `ANTHROPIC_API_KEY` |
-| `foundry` | Claude via **Azure AI Foundry** | **billed to your Azure subscription** — no separate Anthropic account |
-
-**No-LLM run (free):**
+### 4. Run
 ```powershell
-# set classifier: heuristic in config\nzism-3.9.yaml, then:
-ct run --config config\nzism-3.9.yaml
+ct run --config config\nzism-azure.json
 ```
 
-**Foundry (Claude on Azure):** deploy a Claude model in your Foundry project, then set
-in the config:
-```yaml
-mapping:
-  classifier: foundry
-  model: claude-opus-4-7        # your Foundry *deployment name*
-  foundry_base_url: "https://<resource>.services.ai.azure.com/anthropic"
-```
-Auth is keyless via Microsoft Entra ID by default (`az login` + `pip install azure-identity`),
-or set an API key:
+First run pulls the built-in policy catalogue from ARM (cached afterward), ingests
+1,216 in-scope NZISM controls (Restricted profile), and runs the agentic mapper with
+5 parallel LLM threads. Expect ~35 minutes and < $1 in compute cost.
+
+### 5. Inspect results
 ```powershell
-$env:ANTHROPIC_FOUNDRY_API_KEY = "<your-foundry-key>"
+python scripts\inspect.py              # auto-discovers the latest bundle
 ```
-Note Foundry uses your **deployment name** as the model id, and structured-output /
-prompt-cache features may differ on the preview — the classifier falls back automatically
-if the service rejects them.
 
-**Two things to know first:**
-1. The review gate is on by default (`auto_approve: false`), so a first run produces an
-   *empty* initiative on purpose — new proposals go to **review**. Set `auto_approve: true`
-   for an auto-cut, or follow the review step below.
-2. Agentic mode makes ~1,422 Claude calls (one per control). For a free, instant sanity
-   check on the real data first, set `engine: keyword` in the config.
-
-### Review and approve (the authority sign-off gate)
-
+### 6. Review and approve (authority sign-off gate)
 ```powershell
-ct review --config config\nzism-3.9.yaml     # lists pending proposals + rationales
+ct review --config config\nzism-azure.json
 ```
 
-Edit `data\mappings\nzism.json` — change accepted decisions from `"review"` to
-`"include"` (this is the durable mapping that carries forward next year), then re-run
-`ct run`. Approved controls now build into the initiative.
+Edit `data\mappings\nzism.json` — change `"decision": "review"` to `"decision": "include"`
+(or `"ignore"`). Re-run `ct run`. Approved controls appear in `policySet.json`.
 
-### Deploy the initiative (audit-only)
-
-The build writes `out\nzism-3.9\main.bicep`. Deploy it from that folder:
-
+### 7. Deploy
 ```powershell
 cd out\nzism-3.9
-az deployment sub create --location australiaeast --template-file main.bicep --name nzism-3-9
-# management-group scope instead: az deployment mg create --management-group-id <MG_ID> --template-file main.bicep --name nzism-3-9
+az deployment sub what-if --location australiaeast --template-file main.bicep --name nzism-3-9
+az deployment sub create  --location australiaeast --template-file main.bicep --name nzism-3-9
 ```
 
-It deploys the custom **Regulatory Compliance** initiative plus an audit-mode
-assignment, so it surfaces in Defender for Cloud → Regulatory compliance.
+Deploys an audit-only Regulatory Compliance initiative. Appears in
+**Defender for Cloud → Regulatory compliance** within 24 hours.
 
-## The agentic mapper
+## Choosing the classifier
 
-`mapping.engine: agentic` runs the two-stage core:
+Set `mapping.classifier` in your config. All LLM classifiers include OOS candidate
+detection, content-filter fallback, and the existing OOS register as context.
 
-1. **Retrieve** — `mapping/retrieval.py` shortlists the top-k built-in policies for
-   each control (TF-IDF baseline; swap in embeddings later).
-2. **Classify** — `mapping/classifier.py` judges each shortlisted policy:
-   - `classifier: anthropic` — **the real path.** Calls Claude (`claude-opus-4-7` by
-     default, adaptive thinking, cached instructions, structured JSON output) to decide
-     include/ignore with a calibrated confidence and a rationale for the authority sign-off.
-     Needs `pip install control-translator[agentic]` and `ANTHROPIC_API_KEY`.
-   - `classifier: heuristic` — offline token-overlap stand-in so the pipeline runs and
-     tests without network. Not a substitute for the LLM.
+| `classifier` | LLM | Auth / cost | Install |
+|---|---|---|---|
+| `heuristic` | None (token overlap) | Free, no signup, offline | — |
+| `azure-openai` | GPT-4o / GPT-4o-mini via Azure OpenAI or Foundry | `az login` (keyless) or `AZURE_OPENAI_API_KEY`. Billed to Azure sub. **Recommended.** | `pip install "openai>=1.50"` |
+| `azure-inference` | Phi-4, Llama, Mistral via Foundry serverless | `az login` or `AZURE_INFERENCE_API_KEY` | `pip install azure-ai-inference` |
+| `foundry` | Claude via Azure AI Foundry (Anthropic endpoint) | `az login` or `ANTHROPIC_FOUNDRY_API_KEY` | `pip install "anthropic>=0.39"` |
+| `anthropic` | Claude, first-party API | `ANTHROPIC_API_KEY` | `pip install "anthropic>=0.39"` |
 
-The mapper only *proposes*; the engine applies the auto-approve / human-review gate.
+**Azure AI Foundry (recommended — bills to your Azure sub):**
+```json
+"mapping": {
+  "classifier":       "azure-openai",
+  "model":            "${AZURE_OPENAI_DEPLOYMENT}",
+  "foundry_base_url": "${AZURE_OPENAI_ENDPOINT}"
+}
+```
+The tool auto-detects `services.ai.azure.com` endpoints and uses the appropriate client
+with Entra ID token refresh for long runs.
 
-## Initiative structure & build options
+**Content filter fallback:** if Azure's content safety filter blocks a control (common
+for security standards containing language about attacks, penetration testing, etc.),
+the classifier logs a warning and automatically falls back to the heuristic for that
+control. The run continues uninterrupted.
 
-The Azure builder mirrors the published NZISM built-in initiative:
+## Classification profiles (NZISM)
 
-- **Version is independent of the standard.** `build.initiative_version` is a semver
-  (e.g. `1.0.0`) for policy/deprecation changes; the framework document version
-  (`framework.version`, e.g. NZISM 3.9) is written into the **description** prefix
-  (`NZISM v3.9. ...`). Bump the semver freely without changing the standard alignment.
-- **Controls become groups.** Each control → a `policyDefinitionGroups` entry:
-  `name` = `<build.group_prefix><control-id>` (e.g. `New_Zealand_ISM_06.2.5.C.01`),
-  `category` = zero-padded chapter (`06. Information security monitoring`),
-  `description` = the control text. Set `include_metadata_id: true` (+ `metadata_id_template`)
-  only for the built-in submission path.
-- **Required default parameters.** `build.parameter_overrides` points at a JSON file
-  mapping a policy GUID → its parameter → an initiative-level parameter + default. The
-  builder surfaces those as top-level `parameters` and wires the policy refs via
-  `[parameters('...')]`. See `data/parameters/nzism.example.json` (real RSA-key-size /
-  TLS examples pulled from v3.8).
+NZISM controls carry a `Classifications` field. For a public-cloud deployment approved
+only up to a certain classification level, out-of-scope controls can be filtered at
+ingest so they never reach the LLM:
 
-### Out-of-scope register
+```json
+"ingest": {
+  "type": "nzism",
+  "source": "data/source/NZISM-3.9.csv",
+  "classification_profile": "restricted"
+}
+```
 
-`mapping.global_ignore` is the durable OOS register. It accepts a single file path **or
-a list of paths** — the engine takes the union, enabling a two-tier structure:
+| Profile | Includes | Excludes | Use case |
+|---------|---------|---------|----------|
+| `all` | Everything | Nothing | Full catalogue reference |
+| `restricted` | All Classifications, Restricted/Sensitive, Unclassified | Secret, Top Secret, Confidential-only | **NZ Government Azure (default)** |
+| `protected` | As above + Protected | Above Protected | AU Government (IRAP/ISM) |
+
+For NZISM v3.9 with `restricted` profile: 1,216 controls (206 S/TS excluded).
+
+## Parallel classification
+
+The agentic mapper runs LLM calls in parallel using a thread pool, configurable via
+`mapping.concurrency` (default: 5). With `concurrency: 5` and GPT-4o-mini, a full
+NZISM run takes ~35 minutes instead of ~3 hours sequential.
+
+```json
+"mapping": {
+  "concurrency": 5
+}
+```
+
+Raise to 8–10 if your Foundry rate limits allow. The engine uses
+`ThreadPoolExecutor` — the LLM client is thread-safe; the TF-IDF retriever is
+read-only after `.prepare()`; shared state (results dict, OOS accumulator) is
+protected by `threading.Lock`.
+
+## The agentic mapper — how it works
+
+`mapping.engine: agentic` runs a two-stage core per control:
+
+1. **Retrieve** — TF-IDF shortlists the top-k most similar built-in policies
+   (fast, recall-oriented, no LLM call).
+2. **Classify** — the LLM judges each shortlisted candidate:
+   - `relevant` + `confidence` — does this policy cover the control?
+   - `oos_candidate` + `oos_reason` — should this policy be globally excluded for
+     structural reasons (requires In-Guest agent, organisation-specific values, etc.)?
+
+OOS candidates are collected across all controls and emitted as `oos-candidates.json`
+in the bundle for human review. The existing OOS register is supplied as context so the
+LLM applies consistent patterns.
+
+## Automatic filters (applied before any LLM call)
+
+| Filter | What it excludes | Configurable? |
+|--------|-----------------|---------------|
+| **Global OOS register** | Policies in `mapping.global_ignore` (any format GUID/ARM path) | `global_ignore` — single path or list |
+| **Preview auto-filter** | `[Preview]:` policies — tracked, emitted in `out-of-scope.json` | `mapping.preview_filter: false` to disable |
+| **Manual-effect filter** | Azure policies with `effect: Manual` (process/attestation controls — can't evaluate automatically) | `catalogue.exclude_manual: false` to disable |
+| **Classification profile** | Out-of-scope classification controls (e.g. Secret/Top Secret for a Restricted deployment) | `ingest.classification_profile` |
+| **Deprecated filter** | `[Deprecated]:` policies | `catalogue.exclude_deprecated: false` to disable |
+
+## OOS register — two-tier pattern
+
+`mapping.global_ignore` accepts a **single path or a list of paths** (union of all):
 
 ```json
 "global_ignore": [
-    "data/mappings/global-ignore.json",   // cross-framework: process controls, In-Guest, etc.
-    "data/mappings/nzism-ignore.json"     // per-standard: NZISM-only; IRAP would use irap-ignore.json
+  "data/mappings/global-ignore.json",    ← cross-framework: process controls, In-Guest, etc.
+  "data/mappings/nzism-ignore.json"      ← NZISM-specific; IRAP would use irap-ignore.json
 ]
 ```
 
-Each file filters the mapper (those policies are never proposed) and is published as
-`out-of-scope.json` in the bundle for transparency. Schema (see `data/mappings/global-ignore.example.json`):
+Each file is published in `out-of-scope.json` with a `source` field distinguishing
+human decisions from auto-preview entries. Schema:
 
 ```json
 [
-  { "policy_id": "<guid>", "display_name": "...",
-    "reason": "Requires the Guest Configuration / In-Guest policy + agent.",
+  { "policy_id": "<guid-or-full-arm-id>", "display_name": "...",
+    "reason": "Requires Guest Configuration agent pre-deployed.",
     "oos_date": "2025-09-03" }
 ]
 ```
 
-Typical reasons: too hard to implement broadly (e.g. TLS 1.3), requires In-Guest /
-Guest Configuration, or needs a customer-specific list (e.g. SOE image names).
+### OOS staleness detection
+
+On every run the engine cross-references the OOS register against the current
+catalogue. Flagged entries appear in `oos-reconsidered.json`:
+
+- **Preview → GA:** policy was `[Preview]:` when excluded but is now generally available.
+- **Policy removed:** policy no longer exists in the built-in catalogue (deprecated/removed).
+
+`ct review` surfaces these as the highest-priority item.
+
+## Initiative structure & build options
+
+- **Version independent of the standard.** `build.initiative_version` is a semver
+  (`1.0.0`) for policy changes. The standard document version goes in the description
+  prefix (`NZISM v3.9. ...`). Bump the semver freely.
+- **Controls become groups.** Each control → `policyDefinitionGroups` entry with
+  `name: New_Zealand_ISM_06.2.5.C.01`, zero-padded chapter category, control text.
+- **Policy deduplication.** The same built-in policy mapping to multiple controls
+  appears once with all control group names in `groupNames`. In practice 55%+ of
+  policies cover multiple controls.
+- **Required defaults.** `build.parameter_overrides` maps a policy GUID → parameter →
+  initiative-level parameter + default. See `data/parameters/nzism.example.json`.
 
 ## Distribution targets
 
-| Target | Behaviour | Modelled on |
-|--------|-----------|-------------|
-| `local` | write versioned bundle to `out/` | — |
-| `community-policy` | PR-ready folder for the Azure Community Policy repo | Azure/Community-Policy |
-| `gov-repo` | scaffold + push to an owner-hosted gov repo | canada-ca/cloud-guardrails |
+| Target | Behaviour | Status |
+|--------|-----------|--------|
+| `local` | Write versioned bundle to `out/` | Implemented |
+| `community-policy` | PR-ready folder for Azure/Community-Policy repo | TODO |
+| `gov-repo` | Scaffold + push to an owner-hosted gov repo (canada-ca pattern) | TODO |
+
+## Annual update cycle
+
+1. Export new standard CSV → `data/source/`.
+2. Update `framework.version` and bump `build.initiative_version`.
+3. **Do not delete the mapping store.** Carry-forward means only new/changed controls
+   need fresh LLM calls — a typical annual delta is 30–90 controls, not 1,216.
+4. Run `ct review` → check **OOS RECONSIDERED** first (anything gone GA?).
+5. Triage new OOS candidates → promote confirmed ones to `global-ignore.json`.
+6. Work the pending review queue (authority sign-off).
+7. Re-deploy with the new initiative version.
+
+> Back up `data/mappings/` in source control — it is your year-over-year institutional
+> knowledge. Losing it means re-running all LLM calls from scratch.
