@@ -159,18 +159,19 @@ def export_review(pipeline_result, *, output_path: str, framework_id: str,
     _set_col_widths(ws1, [14, 8, 10, 50, 50, 36, 10, 50, 10])
     ws1.freeze_panes = "A2"
 
-    # ── Sheet 2: OOS Candidates ───────────────────────────────────────────────
-    # Columns: Policy Name | GUID | First Seen Control | Chapter | Compliance |
-    #          Control Text | LLM OOS Reason | Action
-    # Action dropdown includes "Include for this control" so a reviewer can
-    # override an OOS flag and force the policy back into the initiative.
+    # ── Sheet 2: OOS Candidates ─────────────────────────────────────────────────
+    # "Control to Apply To" (col C) is editable — reviewer can change which control
+    # the inclusion targets. Light-blue background signals it is editable.
     ws2 = wb.create_sheet("OOS Candidates")
-    cols2 = ["Policy Name", "Policy GUID", "First Seen Control",
-             "Chapter", "Compliance", "Control Text",
+    cols2 = ["Policy Name", "Policy GUID",
+             "Control to Apply To (editable)",
+             "Chapter", "Compliance",
+             "Control Text (confirm correct control)",
              "Flagged by N controls", "All Flagging Controls",
              "LLM OOS Reason", "Action"]
     _header_row(ws2, cols2, row=1, fill_hex=_BLUE)
-    ws2.row_dimensions[1].height = 22
+    ws2.row_dimensions[1].height = 28
+    ws2.cell(row=1, column=3).fill = _fill("1A5F9E")  # darker = editable
 
     for r_idx, cand in enumerate(oos_candidates, start=2):
         fill = _AMBER if r_idx % 2 == 0 else "FFF9F0"
@@ -183,9 +184,14 @@ def export_review(pipeline_result, *, output_path: str, framework_id: str,
         all_flagging = cand.get("flagging_controls", [ctrl_id] if ctrl_id else [])
         n_flagging   = cand.get("flagged_by_n_controls", len(all_flagging))
 
-        _data_cell(ws2, r_idx, 1, cand.get("display_name", ""),        fill)
+        _data_cell(ws2, r_idx, 1, cand.get("display_name", ""),             fill)
         _data_cell(ws2, r_idx, 2, cand.get("policy_id", "").split("/")[-1], fill)
-        _data_cell(ws2, r_idx, 3, ctrl_id,                              fill)
+        # editable control ID — light blue background signals reviewer can change it
+        ctrl_cell = ws2.cell(row=r_idx, column=3, value=ctrl_id)
+        ctrl_cell.font      = Font(name="Segoe UI", size=10)
+        ctrl_cell.fill      = _fill("E8F0FE")
+        ctrl_cell.border    = _thin_border()
+        ctrl_cell.alignment = Alignment(vertical="top")
         _data_cell(ws2, r_idx, 4, chapter,                              fill)
         _data_cell(ws2, r_idx, 5, compliance,                           fill)
         _data_cell(ws2, r_idx, 6, prose,                                fill, wrap=True)
@@ -204,14 +210,58 @@ def export_review(pipeline_result, *, output_path: str, framework_id: str,
             ws2, "J", 2, len(oos_candidates) + 1,
             ["Add to nzism-ignore", "Global ignore",
              "Include for this control", "Skip"],
-            "Add to nzism-ignore = NZISM exclusion  |  "
-            "Global ignore = all standards  |  "
-            "Include for this control = override OOS, keep in initiative")
+            "Column C is editable — change control ID if needed.  "
+            "Include for this control = override OOS, include for control in col C")
 
-    _set_col_widths(ws2, [55, 36, 16, 10, 11, 40, 8, 35, 50, 22])
+    _set_col_widths(ws2, [55, 36, 20, 10, 11, 40, 8, 35, 50, 22])
     ws2.freeze_panes = "A2"
 
-    # ── Sheet 3: Preview Excluded (informational) ─────────────────────────────
+    # ── Sheet 3: Approved Controls (reviewer sign-off) ────────────────────────
+    # All controls currently approved (INCLUDE). Reviewer can flag "Revoke" on any
+    # that look wrong — they're sent back to REVIEW for re-evaluation next run.
+    ws3 = wb.create_sheet("Approved Controls")
+    _GREEN_HDR = "1E6B3A"
+    cols3a = ["Control ID", "Chapter", "Compliance", "Control Text",
+              "Mapped Policies", "Policy Count", "Confidence",
+              "Source", "LLM Rationale", "Revoke?"]
+    _header_row(ws3, cols3a, row=1, fill_hex=_GREEN_HDR)
+    ws3.row_dimensions[1].height = 22
+
+    approved_items = sorted(mapping.approved(), key=lambda m: m.control_id)
+    for r_idx, m in enumerate(approved_items, start=2):
+        ctrl  = ctrl_map.get(m.control_id)
+        prose = (ctrl.prose or "")[:250]                          if ctrl else ""
+        ch    = (ctrl.family or "").split(".")[0].strip()         if ctrl else ""
+        comp  = (ctrl.props.get("compliance") or "")              if ctrl else ""
+        pols  = " | ".join(p.display_name or p.policy_id for p in m.policies[:5])
+        fill  = _GREEN if r_idx % 2 == 0 else "F0FBF4"
+
+        _data_cell(ws3, r_idx, 1, m.control_id,           fill, bold=True)
+        _data_cell(ws3, r_idx, 2, ch,                     fill)
+        _data_cell(ws3, r_idx, 3, comp,                   fill)
+        _data_cell(ws3, r_idx, 4, prose,                  fill, wrap=True)
+        _data_cell(ws3, r_idx, 5, pols,                   fill, wrap=True)
+        _data_cell(ws3, r_idx, 6, len(m.policies),        fill)
+        _data_cell(ws3, r_idx, 7,
+                   round(m.confidence, 2) if m.confidence else "", fill)
+        _data_cell(ws3, r_idx, 8, m.source or "auto",     fill)
+        _data_cell(ws3, r_idx, 9, (m.rationale or "")[:300], fill, wrap=True)
+        rev = ws3.cell(row=r_idx, column=10, value="")
+        rev.fill      = _fill("FFFDE7")
+        rev.font      = Font(name="Segoe UI", size=10, bold=True)
+        rev.border    = _thin_border()
+        rev.alignment = Alignment(horizontal="center", vertical="center")
+
+    if approved_items:
+        _add_dropdown(ws3, "J", 2, len(approved_items) + 1,
+                      ["Revoke"],
+                      "Set Revoke to un-approve — control returns to REVIEW for "
+                      "re-evaluation on the next run")
+
+    _set_col_widths(ws3, [16, 10, 11, 45, 55, 8, 10, 10, 50, 10])
+    ws3.freeze_panes = "A2"
+
+    # ── Sheet 4: Preview Excluded (informational) ─────────────────────────────
     ws3 = wb.create_sheet("Preview Excluded (info)")
     cols3 = ["Policy Name", "Policy GUID", "Note"]
     _header_row(ws3, cols3, row=1, fill_hex="475569")
@@ -248,7 +298,7 @@ def import_review(input_path: str, *, mapping_store_path: str,
 
     wb   = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
     summary = {"include": 0, "ignore": 0, "skipped": 0,
-               "oos_added": 0, "oos_global": 0}
+               "oos_added": 0, "oos_global": 0, "revoked": 0}
 
     # ── Sheet 1: Pending Review ───────────────────────────────────────────────
     store = MappingStore(mapping_store_path)
@@ -355,6 +405,19 @@ def import_review(input_path: str, *, mapping_store_path: str,
             json.dump(global_reg, open(global_path, "w", encoding="utf-8"),
                       indent=2, ensure_ascii=False)
 
-    store.save(mapping_set)
+    # ── Sheet 3: Approved Controls — handle Revoke ───────────────────────────
+    if "Approved Controls" in wb.sheetnames:
+        ws3   = wb["Approved Controls"]
+        rows3 = list(ws3.iter_rows(values_only=True))
+        for row in rows3[1:]:
+            if not row[0]: continue
+            ctrl_id = str(row[0]).strip()
+            action  = str(row[9]).strip().lower() if len(row) > 9 and row[9] else ""
+            if action != "revoke": continue
+            if ctrl_id in mapping_set.mappings:
+                from ..models import Decision
+                mapping_set.mappings[ctrl_id].decision = Decision.REVIEW
+                summary["revoked"] += 1
 
+    store.save(mapping_set)
     return summary

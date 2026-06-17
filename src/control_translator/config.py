@@ -122,8 +122,11 @@ def resolve(config: dict, root: str) -> dict:
         )
     if config.get("build", {}).get("parameter_overrides"):
         config["build"]["parameter_overrides"] = fix(config["build"]["parameter_overrides"])
-    if config["mapping"].get("corrections"):
-        config["mapping"]["corrections"] = fix(config["mapping"]["corrections"])
+    corr = config["mapping"].get("corrections")
+    if corr:
+        config["mapping"]["corrections"] = (
+            [fix(p) for p in corr] if isinstance(corr, list) else fix(corr)
+        )
     if config["mapping"].get("embedding_cache"):
         config["mapping"]["embedding_cache"] = fix(config["mapping"]["embedding_cache"])
     config["out_dir"] = fix(config.get("out_dir", "out"))

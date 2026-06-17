@@ -24,16 +24,32 @@ import json
 import os
 
 
-def load_corrections(path: str | None) -> list[dict]:
-    if not path or not os.path.exists(path):
+def load_corrections(path: "str | list[str] | None") -> list[dict]:
+    """Load corrections from a single path or list of paths (union, in order).
+
+    Two-tier setup (same pattern as global_ignore):
+        ["data/mappings/global-corrections.json",   # cross-framework patterns
+         "data/mappings/nzism-corrections.json"]    # NZISM-specific control mappings
+    """
+    if not path:
         return []
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
-    return [d for d in data if isinstance(d, dict) and d.get("policy_id")]
+    paths = [path] if isinstance(path, str) else list(path)
+    result: list[dict] = []
+    for p in paths:
+        if p and os.path.exists(p):
+            with open(p, encoding="utf-8") as fh:
+                data = json.load(fh)
+            result.extend(d for d in data if isinstance(d, dict) and (d.get("policy_id") or d.get("include_reasoning")))
+    return result
 
 
-def save_correction(path: str, entry: dict) -> None:
-    existing = load_corrections(path)
+def save_correction(path: "str | list[str]", entry: dict) -> None:
+    """Write a correction to the target path.
+
+    If path is a list, writes to the LAST entry (most specific / per-standard file).
+    """
+    write_path = path[-1] if isinstance(path, list) else path
+    existing = load_corrections(write_path)
     # deduplicate by (policy_id, control_id)
     key = (entry.get("policy_id", ""), entry.get("control_id", ""))
     existing = [e for e in existing

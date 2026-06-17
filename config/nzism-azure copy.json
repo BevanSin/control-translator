@@ -32,7 +32,6 @@
     "exclude_patterns": [
       "customer-managed key",
       "customer managed key",
-      "gcpol",
       "mission platform"
     ]
   },

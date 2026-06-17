@@ -768,6 +768,16 @@ print(len(rows), 'controls written')
   <hr>
 
   <!-- ===== 12. CURRENT LIMITATIONS ===== -->
+  <div class="callout warn" style="margin-top:0">
+    <p class="callout-label">⚠ VS Code PowerShell — Python one-liner syntax</p>
+    <p>PowerShell interprets <code>[</code> as the start of a type accelerator. Any
+    Python <code>-c</code> command containing <code>[x for x in ...]</code> list
+    comprehensions will fail with <strong>"[ was never closed"</strong>.</p>
+    <p>Use <code>sum(1 for x in ...)</code> instead of <code>len([x for x in ...])</code>,
+    or write complex scripts to a file under <code>scripts\</code> and run with
+    <code>python scripts\scriptname.py</code>.</p>
+  </div>
+
   <h1>12. Current Limitations</h1>
 
   <table>
@@ -882,6 +892,172 @@ print(len(rows), 'controls written')
       </tbody>
     </table>
   </div>
+
+  
+  <hr>
+
+  <!-- ===== 14. FULL CONFIG REFERENCE ===== -->
+  <h1>14. Full Configuration Reference</h1>
+  <p>Every key supported in the JSON / YAML config file, with defaults, purpose, and
+  design rationale where the choice is non-obvious.</p>
+
+  <!-- framework block -->
+  <h2>14.1 framework</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td>—</td><td>Short identifier used for file naming (e.g. <code>nzism</code>)</td></tr>
+      <tr><td><code>version</code></td><td>—</td><td>Standard document version (e.g. <code>"3.9"</code>). Goes into the initiative description — <strong>not</strong> the initiative semver.</td></tr>
+      <tr><td><code>short_name</code></td><td>—</td><td>Abbreviated name used in the description prefix (e.g. <code>"NZISM"</code>)</td></tr>
+      <tr><td><code>display_name</code></td><td>—</td><td>Full name shown in the Azure portal initiative title</td></tr>
+      <tr><td><code>reference_url</code></td><td>—</td><td>URL to the published standard — included in the initiative description</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <p class="callout-label">ℹ Design: two independent version numbers</p>
+    <p><code>framework.version</code> (e.g. <code>3.9</code>) tracks the <em>standard document</em>.
+    <code>build.initiative_version</code> (e.g. <code>1.0.0</code>) tracks <em>your policy set changes</em>.
+    They are completely independent. Updating the standard to v4.0 does not automatically bump the
+    initiative version — that is your decision based on what policy changes you make in response.</p>
+  </div>
+
+  <!-- ingest block -->
+  <h2>14.2 ingest</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>type</code></td><td>—</td><td><code>nzism</code> | <code>fixture</code> (offline test). Framework-specific plugin.</td></tr>
+      <tr><td><code>source</code></td><td>—</td><td>Path to the framework CSV export (e.g. <code>data/source/NZISM-3.9.csv</code>)</td></tr>
+      <tr><td><code>classification_profile</code></td><td><code>"all"</code></td><td>
+        Filter controls by classification scope before any LLM call:<br>
+        <code>"all"</code> — include every control (no filter)<br>
+        <code>"restricted"</code> — NZ Government public cloud: All Classifications + Restricted/Sensitive<br>
+        <code>"protected"</code> — AU Government: as restricted + Protected
+      </td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <p class="callout-label">ℹ Design: why default is "all" not "restricted"</p>
+    <p>The classification profile is an explicit operational decision — defaulting to
+    <code>"restricted"</code> could silently exclude controls that are relevant in some
+    deployments. Setting it explicitly makes the scope decision auditable and intentional.
+    For NZ Government public cloud: always set <code>"restricted"</code>.</p>
+  </div>
+
+  <!-- catalogue block -->
+  <h2>14.3 catalogue</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>type</code></td><td>—</td><td><code>azure</code> | <code>offline</code> (test)</td></tr>
+      <tr><td><code>source</code></td><td>—</td><td>Cache path for the built-in policy pull (e.g. <code>data/cache/azure-builtins.json</code>)</td></tr>
+      <tr><td><code>exclude_deprecated</code></td><td><code>true</code></td><td>Remove <code>[Deprecated]:</code> policies from the candidate pool</td></tr>
+      <tr><td><code>exclude_manual</code></td><td><code>true</code></td><td>Remove <code>Manual</code>-effect policies (require human attestation — cannot auto-evaluate)</td></tr>
+      <tr><td><code>exclude_non_auditable</code></td><td><code>true</code></td><td>Remove <code>Modify</code> / <code>DeployIfNotExists</code> / <code>Append</code> policies that have no <code>Audit</code> fallback in their allowed values</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">
+    <p class="callout-label">ℹ Design: why exclude_non_auditable defaults to true</p>
+    <p>The initiative is deployed in <code>DoNotEnforce</code> (audit-only) mode. In this
+    mode, <code>Modify</code> and <code>DeployIfNotExists</code> policies produce
+    <strong>no evaluation output at all</strong> — they neither block resources nor show
+    compliance status in Defender for Cloud. Including them is misleading because they appear
+    in the initiative but are effectively invisible. Policies with a parameterised effect
+    that <em>allows</em> <code>Audit</code> as a value are kept because they could be used
+    in audit mode. This filter removed ~416 policies from a typical Azure catalogue pull.</p>
+  </div>
+
+  <!-- mapping block -->
+  <h2>14.4 mapping</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>engine</code></td><td><code>"keyword"</code></td><td><code>"keyword"</code> (free, TF-IDF, fast) | <code>"agentic"</code> (LLM, semantic)</td></tr>
+      <tr><td><code>classifier</code></td><td>—</td><td><code>"heuristic"</code> | <code>"azure-openai"</code> | <code>"anthropic"</code> | <code>"foundry"</code> | <code>"azure-inference"</code></td></tr>
+      <tr><td><code>model</code></td><td>—</td><td>LLM deployment name (for azure-openai: the Foundry deployment name)</td></tr>
+      <tr><td><code>foundry_base_url</code></td><td>env: <code>AZURE_OPENAI_ENDPOINT</code></td><td>Full Foundry OpenAI endpoint URL (e.g. <code>https://res.services.ai.azure.com/openai/v1</code>)</td></tr>
+      <tr><td><code>effort</code></td><td><code>"medium"</code></td><td>LLM reasoning depth: <code>"low"</code> | <code>"medium"</code> | <code>"high"</code>. Medium balances quality and cost for classification.</td></tr>
+      <tr><td><code>retrieval</code></td><td><code>"tfidf"</code></td><td><code>"tfidf"</code> (lexical, no API cost) | <code>"embedding"</code> (semantic, requires embedding deployment)</td></tr>
+      <tr><td><code>embedding_model</code></td><td><code>"text-embedding-3-small"</code></td><td>Embedding deployment name in your Foundry project</td></tr>
+      <tr><td><code>embedding_endpoint</code></td><td>env: <code>AZURE_EMBEDDING_ENDPOINT</code></td><td>Endpoint for the embedding model (can be same Foundry resource)</td></tr>
+      <tr><td><code>embedding_cache</code></td><td><code>"data/cache/embeddings"</code></td><td>Base path for embedding cache files (<code>.npy</code> + <code>_ids.json</code>)</td></tr>
+      <tr><td><code>store</code></td><td>—</td><td>Path to the durable mapping store (e.g. <code>data/mappings/nzism.json</code>)</td></tr>
+      <tr><td><code>global_ignore</code></td><td>—</td><td>Single path or list of paths to OOS registers. Union of all. Two-tier: global + per-standard.</td></tr>
+      <tr><td><code>corrections</code></td><td>—</td><td>Single path or list of paths to human correction files. Injected as few-shot examples into every LLM classify call.</td></tr>
+      <tr><td><code>auto_approve</code></td><td><code>false</code></td><td>Automatically approve proposals above <code>confidence_threshold</code>. Set <code>true</code> for a first-cut run; <code>false</code> for authority sign-off runs.</td></tr>
+      <tr><td><code>confidence_threshold</code></td><td><code>0.75</code></td><td>Minimum confidence (0–1) for auto-approval. Below this → REVIEW.</td></tr>
+      <tr><td><code>concurrency</code></td><td><code>5</code></td><td>Number of parallel LLM classify calls. Raise to 8–10 if rate limits allow. Reduce to 3 if seeing rate-limit errors.</td></tr>
+      <tr><td><code>preview_filter</code></td><td><code>true</code></td><td>Auto-exclude <code>[Preview]:</code> policies. They appear in <code>out-of-scope.json</code> and are reconsidered when GA.</td></tr>
+      <tr><td><code>exclude_patterns</code></td><td><code>[]</code></td><td>List of display-name <strong>and description</strong> substrings that exclude a policy before the LLM. Case-insensitive. See below.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>exclude_patterns — how it works</h3>
+  <p>Each pattern is matched case-insensitively against the policy's
+  <strong>display name combined with its description</strong>. This means patterns like
+  <code>"gcpol"</code> — which appears in policy <em>descriptions</em> as a prerequisite
+  reference, not in the display name — are caught correctly.</p>
+  <div class="callout">
+    <p class="callout-label">ℹ Design: why check descriptions too</p>
+    <p>Azure Guest Configuration dependency policies say in their <em>description</em> that
+    they "require that GcPol prerequisites be deployed" — but their <em>display name</em>
+    simply says "Audit Windows machines that do not have the minimum password age". Matching
+    only the display name would miss 78 such policies. Checking both catches the structural
+    dependency regardless of how the policy is named.</p>
+  </div>
+<pre><code>"exclude_patterns": [
+  "customer-managed key",   <span class="comment">// CMK: requires agency key management — not warranted at Restricted</span>
+  "customer managed key",
+  "gcpol",                  <span class="comment">// Guest Configuration prerequisite — In-Guest agent required</span>
+  "mission platform"        <span class="comment">// Microsoft-internal infrastructure policies — not for external customers</span>
+]</code></pre>
+
+  <h3>global_ignore and corrections — two-tier pattern</h3>
+  <p>Both <code>global_ignore</code> and <code>corrections</code> support a list of paths
+  so you can maintain a shared cross-framework file alongside a per-standard file:</p>
+<pre><code>"global_ignore": [
+  "data/mappings/global-ignore.json",     <span class="comment">// In-Guest agent, process controls — excluded from ALL standards</span>
+  "data/mappings/nzism-ignore.json"       <span class="comment">// NZISM-specific exclusions (safe to include in IRAP)</span>
+],
+"corrections": [
+  "data/mappings/global-corrections.json",  <span class="comment">// Defender patterns — apply to any standard</span>
+  "data/mappings/nzism-corrections.json"    <span class="comment">// HTTPS → 20.1.24.C.04 — NZISM control IDs only</span>
+]</code></pre>
+  <div class="callout">
+    <p class="callout-label">ℹ Design: why per-standard separation</p>
+    <p>A policy OOS for NZISM (e.g. "Backup not required at Restricted") may be perfectly
+    valid for IRAP or ISO 27001. Similarly, a correction teaching the LLM that
+    "HTTPS policies → 20.1.24.C.04" is meaningless to IRAP which uses different control
+    numbering. The split ensures institutional knowledge accumulates in the right tier and
+    doesn't accidentally pollute other standards' runs.</p>
+  </div>
+
+  <!-- build block -->
+  <h2>14.5 build</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Default</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>type</code></td><td>—</td><td><code>"azure"</code></td></tr>
+      <tr><td><code>initiative_version</code></td><td><code>"1.0.0"</code></td><td>Semver for your policy set. Bump when you add/remove/change policies. Independent of the standard document version.</td></tr>
+      <tr><td><code>group_prefix</code></td><td><code>""</code></td><td>Prefix for <code>policyDefinitionGroups</code> names (e.g. <code>"New_Zealand_ISM_"</code>)</td></tr>
+      <tr><td><code>parameter_overrides</code></td><td>—</td><td>Path to JSON mapping policy GUID → parameter → initiative-level default. See <code>data/parameters/nzism.example.json</code>.</td></tr>
+      <tr><td><code>scope</code></td><td><code>"subscription"</code></td><td><code>"subscription"</code> | <code>"managementGroup"</code></td></tr>
+      <tr><td><code>enforcement_mode</code></td><td><code>"DoNotEnforce"</code></td><td>Always <code>"DoNotEnforce"</code> for a Regulatory Compliance initiative. This makes all policies audit-only.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- distribute block -->
+  <h2>14.6 distribute</h2>
+  <table>
+    <thead><tr><th>Key</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>type: "local"</code></td><td>Write bundle to <code>out/&lt;framework&gt;-&lt;version&gt;/</code></td></tr>
+      <tr><td><code>type: "community-policy"</code></td><td>Format for Azure/Community-Policy repo PR (TODO)</td></tr>
+      <tr><td><code>type: "gov-repo"</code></td><td>Push to authority-owned GitHub repo (TODO)</td></tr>
+    </tbody>
+  </table>
+
+
 
   <p style="margin-top:3em;color:#6b7280;font-size:0.85em;text-align:center">
     Control Translator Process Guide · v1.0 · Generated by Microsoft Copilot

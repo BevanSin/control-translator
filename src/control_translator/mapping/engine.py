@@ -42,6 +42,7 @@ class MappingEngine:
                  oos_context: list[dict] | None = None,
                  corrections: list[dict] | None = None,
                  preview_filter: bool = True,
+                 exclude_patterns: list[str] | None = None,
                  verbose: bool = True,
                  concurrency: int = 5,
                  checkpoint_every: int = 25):
@@ -52,6 +53,7 @@ class MappingEngine:
         self.oos_context          = oos_context or []
         self.corrections          = corrections or []
         self.preview_filter       = preview_filter
+        self.exclude_patterns     = [p.lower() for p in (exclude_patterns or [])]
         self.verbose              = verbose
         self.concurrency          = max(1, concurrency)
         self.checkpoint_every     = max(1, checkpoint_every)
@@ -87,10 +89,38 @@ class MappingEngine:
                     }
             candidates = live
 
+        # Pattern-based filter — config-driven substring exclusions.
+        # Checks both display_name and description so patterns like "gcpol"
+        # (which appear in policy descriptions as prerequisite references)
+        # are caught even when not in the display name.
+        pattern_seen: dict[str, dict] = {}
+        if self.exclude_patterns:
+            live = []
+            for p in candidates:
+                search_text = f"{p.display_name} {p.description}".strip().lower()
+                matched = next((pat for pat in self.exclude_patterns
+                                if pat in search_text), None)
+                if matched:
+                    pid = _norm_id(p.id)
+                    if pid not in pattern_seen:
+                        pattern_seen[pid] = {
+                            "policy_id":    p.id,
+                            "display_name": p.display_name,
+                            "reason":       f"Matches exclude pattern: '{matched}'",
+                            "source":       "pattern-exclude",
+                            "pattern":      matched,
+                        }
+                else:
+                    live.append(p)
+            candidates = live
+
         if self.verbose:
+            parts = [f"{len(preview_seen)} preview-excluded",
+                     f"{len(self.global_ignore)} OOS-excluded"]
+            if pattern_seen:
+                parts.append(f"{len(pattern_seen)} pattern-excluded")
             print(f"  Candidates: {len(candidates)} built-in policies "
-                  f"({len(preview_seen)} preview-excluded, "
-                  f"{len(self.global_ignore)} OOS-excluded)",
+                  f"({', '.join(parts)})",
                   file=sys.stderr)
 
         self.mapper.prepare(candidates)
@@ -230,6 +260,7 @@ class MappingEngine:
             if flagging and "first_seen_control" not in rec:
                 rec["first_seen_control"] = flagging[0]
             rec["flagged_by_n_controls"] = len(flagging)
-        result.oos_suggestions = list(oos_seen.values())
+        result.oos_suggestions  = list(oos_seen.values())
         result.preview_excluded = list(preview_seen.values())
+        result.pattern_excluded = list(pattern_seen.values())
         return result

@@ -62,6 +62,7 @@ class MappingSet:
     # ephemeral — populated each run by the engine, not persisted to the store
     oos_suggestions: list[dict] = field(default_factory=list)
     preview_excluded: list[dict] = field(default_factory=list)
+    pattern_excluded: list[dict] = field(default_factory=list)
 
     def approved(self) -> list[ControlMapping]:
         return [m for m in self.mappings.values()

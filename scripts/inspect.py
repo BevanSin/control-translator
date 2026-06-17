@@ -43,8 +43,16 @@ def inspect_bundle(bundle_dir: Path) -> None:
         oos = _load(oos_path)
         human = [r for r in oos if r.get("source") != "auto-preview"]
         preview = [r for r in oos if r.get("source") == "auto-preview"]
+        pattern = [r for r in oos if r.get("source") == "pattern-exclude"]
         print(f"  OOS (human decisions)     : {len(human)}")
         print(f"  OOS (auto-preview)        : {len(preview)}")
+        if pattern:
+            by_pat = {}
+            for r in pattern:
+                by_pat.setdefault(r.get("pattern","?"), 0)
+                by_pat[r.get("pattern","?")] += 1
+            print(f"  OOS (pattern-excluded)    : {len(pattern)}", end="")
+            print("  — " + ", ".join(f"'{k}': {v}" for k,v in by_pat.items()))
 
     cand_path = bundle_dir / "oos-candidates.json"
     if cand_path.exists():

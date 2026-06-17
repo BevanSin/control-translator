@@ -36,6 +36,9 @@ mapping:
   auto_approve: false              # authority sign-off gate on all new proposals
   confidence_threshold: 0.75
   concurrency: 5                  # parallel LLM calls (raise to 8-10 if rate limits allow)
+  exclude_patterns:               # display-name substrings filtered before the LLM
+    - "customer-managed key"      # CMK: requires agency key management infrastructure
+    - "customer managed key"      #   — operational risk not warranted at Restricted level
 
 build:
   type: azure

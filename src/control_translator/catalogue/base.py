@@ -12,7 +12,8 @@ class PolicyDefinition:
     description: str = ""
     category: str = ""
     policy_type: str = "BuiltIn"         # BuiltIn | Static | Custom
-    effect: str = ""                     # Audit | Deny | Manual | DeployIfNotExists | ...
+    effect: str = ""                     # default effect
+    effect_allowed_values: list = field(default_factory=list)  # allowed effect values
     parameters: dict = field(default_factory=dict)
 
     @classmethod
@@ -21,6 +22,7 @@ class PolicyDefinition:
                    description=d.get("description", ""), category=d.get("category", ""),
                    policy_type=d.get("policy_type", "BuiltIn"),
                    effect=d.get("effect", ""),
+                   effect_allowed_values=d.get("effect_allowed_values", []),
                    parameters=d.get("parameters", {}))
 
 
@@ -46,5 +48,6 @@ def get_catalogue(kind: str, source: str | None = None,
             include_static=options.get("include_static", False),
             exclude_deprecated=options.get("exclude_deprecated", True),
             exclude_manual=options.get("exclude_manual", True),
+            exclude_non_auditable=options.get("exclude_non_auditable", True),
             refresh=options.get("refresh", False))
     raise ValueError(f"unknown catalogue: {kind!r}")

@@ -89,6 +89,13 @@ def cmd_export_review(args: argparse.Namespace) -> int:
     config = _load(args.config)
     fw = config["framework"]
 
+    # Default output path: out/<framework-id>-<version>/review.xlsx
+    out_dir = config.get("out_dir", "out")
+    slug    = f"{fw['id']}-{fw['version']}"
+    output_path = args.output or os.path.join(out_dir, slug, "review.xlsx")
+    parent = os.path.dirname(os.path.abspath(output_path))
+    os.makedirs(parent, exist_ok=True)
+
     # Run pipeline to get current mapping state (mostly carry-forward — fast)
     print("Collecting review state...")
     result = run_pipeline(config, do_distribute=False)
@@ -131,14 +138,14 @@ def cmd_export_review(args: argparse.Namespace) -> int:
         return 0
 
     from .review.excel import export_review
-    export_review(result, output_path=args.output,
+    export_review(result, output_path=output_path,
                   framework_id=fw["id"], version=fw["version"],
                   oos_register_path=config["mapping"].get("global_ignore"),
                   oos_candidates=oos_cands,
                   preview_excluded=preview)
-    print(f"\nReview workbook written → {args.output}")
+    print(f"\nReview workbook written → {output_path}")
     print("Open in Excel, fill the Decision columns (yellow cells), save, then:")
-    print(f"  ct import-review --config {args.config} --input {args.output}")
+    print(f"  ct import-review --config {args.config} --input {output_path}")
     return 0
 
 
@@ -165,8 +172,64 @@ def cmd_import_review(args: argparse.Namespace) -> int:
         print(f"  {summary['oos_added']:>4} OOS candidates added to nzism-ignore")
     if summary["oos_global"]:
         print(f"  {summary['oos_global']:>4} OOS candidates added to global-ignore")
+    if summary.get("revoked"):
+        print(f"  {summary['revoked']:>4} approved controls revoked → back to review")
     print(f"\nRe-run to rebuild the initiative with updated decisions:")
     print(f"  ct run --config {args.config}")
+    return 0
+
+
+def cmd_seed(args: argparse.Namespace) -> int:
+    """Seed the mapping store from an existing initiative or CSV."""
+    config   = _load(args.config)
+    fw       = config["framework"]
+    mcfg     = config["mapping"]
+    dry_run  = args.dry_run
+    overwrite = args.overwrite
+
+    from .mapping.store import MappingStore
+    from .seeds import seed_from_initiative, seed_from_csv
+    store = MappingStore(mcfg["store"])
+
+    if not args.from_initiative and not args.from_csv:
+        print("Error: supply at least one of --from-initiative or --from-csv")
+        return 1
+
+    total_seeded = 0
+
+    if args.from_initiative:
+        prefix = config.get("build", {}).get("group_prefix", "")
+        print(f"Seeding from initiative: {args.from_initiative}"
+              + (" [DRY RUN]" if dry_run else ""))
+        s = seed_from_initiative(
+            args.from_initiative, store=store,
+            framework_id=fw["id"], version=fw["version"],
+            group_prefix=prefix, overwrite_human=overwrite, dry_run=dry_run)
+        print(f"  Groups found        : {s.get('groups_found', '?')}")
+        print(f"  Pairs extracted     : {s.get('pairs_extracted', '?')}")
+        print(f"  Seeded              : {s['seeded']} controls → include")
+        if s["already_seeded"]: print(f"  Already seeded      : {s['already_seeded']} (skipped)")
+        if s["skipped_human"]:  print(f"  Human decisions kept: {s['skipped_human']} (protected)")
+        total_seeded += s["seeded"]
+
+    if args.from_csv:
+        print(f"Seeding from CSV: {args.from_csv}"
+              + (" [DRY RUN]" if dry_run else ""))
+        s = seed_from_csv(
+            args.from_csv, store=store,
+            framework_id=fw["id"], version=fw["version"],
+            overwrite_human=overwrite, dry_run=dry_run)
+        print(f"  Seeded              : {s['seeded']} controls")
+        if s["already_seeded"]:  print(f"  Already seeded      : {s['already_seeded']} (skipped)")
+        if s["skipped_human"]:   print(f"  Human decisions kept: {s['skipped_human']} (protected)")
+        if s["skipped_bad_row"]: print(f"  Bad rows skipped    : {s['skipped_bad_row']}")
+        total_seeded += s["seeded"]
+
+    if dry_run:
+        print(f"\n  [DRY RUN] {total_seeded} decisions would be seeded — nothing written.")
+    else:
+        print(f"\n  {total_seeded} decisions written to {mcfg['store']}")
+        print(f"  Next ct run will carry-forward these decisions without LLM calls.")
     return 0
 
 
@@ -187,9 +250,22 @@ def main(argv: list[str] | None = None) -> int:
     p_exp = sub.add_parser("export-review",
                             help="export pending review items to Excel")
     p_exp.add_argument("--config", required=True)
-    p_exp.add_argument("--output", default="review.xlsx",
-                       help="output Excel file (default: review.xlsx)")
+    p_exp.add_argument("--output", default=None,
+                       help="output Excel file (default: out/<framework>-<version>/review.xlsx)")
     p_exp.set_defaults(func=cmd_export_review)
+
+    p_seed = sub.add_parser("seed",
+                             help="seed mapping store from an existing initiative or CSV")
+    p_seed.add_argument("--config",           required=True)
+    p_seed.add_argument("--from-initiative",  metavar="PATH",
+                        help="path to a policySet.json to extract decisions from")
+    p_seed.add_argument("--from-csv",         metavar="PATH",
+                        help="path to a CSV (columns: control_id, policy_id, decision, reason)")
+    p_seed.add_argument("--dry-run",          action="store_true",
+                        help="show what would be seeded without writing to the store")
+    p_seed.add_argument("--overwrite",        action="store_true",
+                        help="overwrite existing seeded decisions (never overwrites human decisions)")
+    p_seed.set_defaults(func=cmd_seed)
 
     p_imp = sub.add_parser("import-review",
                             help="import decisions from completed review workbook")
