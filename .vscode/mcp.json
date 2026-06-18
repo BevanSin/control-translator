@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "control-translator": {
+      "command": "${workspaceFolder}/.venv/Scripts/ct-mcp.exe",
+      "args": []
+    }
+  }
+}
