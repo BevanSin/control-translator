@@ -6,7 +6,7 @@
     "display_name": "New Zealand ISM",
     "reference_url": "https://www.nzism.gcsb.govt.nz/ism-document"
   },
-  "ingest": { "type": "nzism", "source": "data/source/nzism-3.9.csv",
+  "ingest": { "type": "nzism", "source": "data/source/nzism2-3.9.csv",
               "classification_profile": "restricted" },
   "catalogue": { "type": "azure", "source": "data/cache/azure-builtins.json" },
   "mapping": {

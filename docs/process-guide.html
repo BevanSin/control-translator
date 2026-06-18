@@ -88,7 +88,7 @@
   <!-- ===== TITLE BLOCK ===== -->
   <div class="title-block">
     <h1 class="doc-title" style="margin-top:0">Control Translator</h1>
-    <p class="subtitle">End-to-End Process Guide</p>
+    <p class="subtitle">End-to-End Process Guide — Any compliance framework → Azure Policy initiative</p>
     <div class="meta">
       <strong>Audience:</strong> Solution Engineer &nbsp;·&nbsp;
       <strong>Cadence:</strong> Once per standard release cycle (~annually) &nbsp;·&nbsp;
@@ -100,16 +100,22 @@
   <h1>1. Overview</h1>
   <p>
     <strong>Control Translator</strong> turns a published security standard — such as the
-    New Zealand Information Security Manual (NZISM) — into a deployable Azure custom
-    Regulatory Compliance initiative. It ingests the control catalogue, pulls the current
-    set of Azure built-in policy definitions, uses an AI classifier to map each control to
-    the most appropriate built-in policies, and emits a native Azure initiative (plus Bicep
-    deployment template) ready to assign to your subscription or management group.
+    New Zealand Information Security Manual (NZISM) or the Australian ISM (IRAP) — into a
+    deployable Azure custom Regulatory Compliance initiative. It ingests the control
+    catalogue, pulls the current set of Azure built-in policy definitions, uses an AI
+    classifier to map each control to the most appropriate built-in policies, and emits a
+    native Azure initiative (plus Bicep deployment template) ready to assign to your
+    subscription or management group.
   </p>
   <p>
     The result appears in <strong>Defender for Cloud → Regulatory compliance</strong> just
     like a Microsoft-published built-in standard, but is under your control — no dependency
     on a centrally-managed publishing pathway.
+  </p>
+  <p>
+    You can interact with the tool via the <strong>CLI</strong> (<code>ct</code>) or the
+    <strong>MCP server</strong> (<code>ct-mcp</code>) for a conversational workflow through
+    Claude Code, Claude Desktop, or VS Code Copilot.
   </p>
 
   <div class="flow">
@@ -786,12 +792,7 @@ print(len(rows), 'controls written')
       <tr>
         <td>Only CSV input (no website URL or PDF ingest)</td>
         <td><span class="badge grey">Roadmap</span></td>
-        <td>Export manually from the standard's publisher website. <em>(NZISM: <a href="https://www.nzism.gcsb.govt.nz/ism-document">nzism.gcsb.govt.nz</a>)</em></td>
-      </tr>
-      <tr>
-        <td>Pending review requires hand-editing the mapping store JSON file</td>
-        <td><span class="badge grey">Roadmap</span></td>
-        <td>Open in VS Code, find/replace <code>"decision": "review"</code> → <code>"decision": "include"</code> for batch approvals</td>
+        <td>Export manually from the standard's publisher website. <em>(NZISM: <a href="https://www.nzism.gcsb.govt.nz/ism-document">nzism.gcsb.govt.nz</a>; IRAP/ISM: <a href="https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism">cyber.gov.au</a>)</em></td>
       </tr>
       <tr>
         <td>Chapter/subset run requires a filtered CSV</td>
@@ -804,7 +805,7 @@ print(len(rows), 'controls written')
         <td>Use <code>engine: keyword</code> for a free first-cut; switch to <code>engine: agentic</code> for the quality pass. Carry-forward means subsequent runs are near-free — only new/changed controls trigger the LLM.</td>
       </tr>
       <tr>
-        <td>Custom policy generation (controls with no built-in coverage)</td>
+        <td>Custom Azure Policy generation (controls with no built-in coverage)</td>
         <td><span class="badge grey">Roadmap</span></td>
         <td>Mark affected controls as <code>ignore</code> and note them for future coverage</td>
       </tr>
@@ -812,6 +813,72 @@ print(len(rows), 'controls written')
   </table>
 
   <hr>
+
+  <hr>
+
+  <!-- ===== 12b. MCP SERVER ===== -->
+  <h1>12b. MCP Server — Conversational Interface</h1>
+
+  <p>Instead of working in the CLI and spreadsheets, you can interact with Control Translator
+  through natural language using the <strong>MCP server</strong>. Connect it to Claude Code,
+  Claude Desktop, VS Code Copilot, or any MCP-capable client.</p>
+
+  <h2>Install and run</h2>
+<pre><code><span class="ps1-prompt">PS&gt;</span> pip install -e ".[mcp]"
+
+<span class="comment"># stdio transport (Claude Code / VS Code)</span>
+<span class="ps1-prompt">PS&gt;</span> ct-mcp
+
+<span class="comment"># HTTP transport (Claude Desktop / MCP Inspector)</span>
+<span class="ps1-prompt">PS&gt;</span> ct-mcp --transport http --port 8000</code></pre>
+
+  <h2>Add to Claude Code</h2>
+<pre><code><span class="ps1-prompt">$</span> claude mcp add ct-mcp -- ct-mcp</code></pre>
+
+  <h2>Available tools</h2>
+  <table>
+    <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>run_pipeline</code></td><td>Run the full pipeline end-to-end</td></tr>
+      <tr><td><code>approve_controls</code></td><td>Approve pending mappings → include in initiative</td></tr>
+      <tr><td><code>reject_controls</code></td><td>Reject mappings → exclude from initiative</td></tr>
+      <tr><td><code>add_to_oos_register</code></td><td>Add policies to the global or framework OOS register</td></tr>
+      <tr><td><code>get_mapping_details</code></td><td>Look up full mapping details for a specific control</td></tr>
+      <tr><td><code>search_controls</code></td><td>Search by keyword, filter by decision status</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Available resources</h2>
+  <table>
+    <thead><tr><th>URI</th><th>What it exposes</th></tr></thead>
+    <tbody>
+      <tr><td><code>ct://status</code></td><td>Framework info, mapping store stats, last run summary</td></tr>
+      <tr><td><code>ct://pending-review</code></td><td>Controls awaiting authority sign-off</td></tr>
+      <tr><td><code>ct://oos-candidates</code></td><td>Policies flagged for potential exclusion</td></tr>
+      <tr><td><code>ct://oos-reconsidered</code></td><td>Stale OOS entries needing re-evaluation</td></tr>
+      <tr><td><code>ct://bundle-summary</code></td><td>Latest bundle stats (policies, groups, files)</td></tr>
+      <tr><td><code>ct://run-history</code></td><td>Pipeline run history</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Example conversations</h2>
+  <p>With the MCP server connected, you can say things like:</p>
+  <ul>
+    <li><em>"What's the current status of the NZISM mapping?"</em></li>
+    <li><em>"Show me the pending review queue"</em></li>
+    <li><em>"Approve controls 06.2.5.C.01 through 06.2.5.C.05"</em></li>
+    <li><em>"Search for controls related to encryption"</em></li>
+    <li><em>"Add policy abc123 to the OOS register — it requires In-Guest agent"</em></li>
+    <li><em>"Run the pipeline and tell me what changed"</em></li>
+  </ul>
+
+  <div class="callout tip">
+    <p class="callout-label">💡 MCP replaces spreadsheet editing</p>
+    <p>The review workflow that previously required editing JSON files or Excel workbooks
+    can now be done entirely through conversation. Say <em>"approve these controls"</em>
+    or <em>"add this policy to the OOS register because it requires In-Guest agent"</em>
+    and the MCP server updates the mapping store and OOS register directly.</p>
+  </div>
 
   <hr>
 
@@ -886,6 +953,10 @@ print(len(rows), 'controls written')
         <tr><td>Offline smoke test (no cloud)</td><td><code>ct run --config config\sample.json</code></td></tr>
         <tr><td>Full pipeline run</td><td><code>ct run --config config\&lt;your-config&gt;.json</code></td></tr>
         <tr><td>Review all queues</td><td><code>ct review --config config\&lt;your-config&gt;.json</code></td></tr>
+        <tr><td>Export review to Excel</td><td><code>ct export-review --config config\&lt;your-config&gt;.json</code></td></tr>
+        <tr><td>Import review from Excel</td><td><code>ct import-review --config config\&lt;your-config&gt;.json --input review.xlsx</code></td></tr>
+        <tr><td>Start MCP server (stdio)</td><td><code>ct-mcp</code></td></tr>
+        <tr><td>Start MCP server (HTTP)</td><td><code>ct-mcp --transport http --port 8000</code></td></tr>
         <tr><td>Reset mapping store</td><td><code>del data\mappings\&lt;your-framework&gt;.json</code></td></tr>
         <tr><td>Deploy to Azure</td><td><code>cd out\&lt;output-folder&gt; &amp;&amp; az deployment sub create --location australiaeast --template-file main.bicep --name &lt;initiative-name&gt;</code></td></tr>
         <tr><td>Remove test deployment</td><td><code>az policy assignment delete --name &lt;initiative-name&gt;-audit</code></td></tr>
