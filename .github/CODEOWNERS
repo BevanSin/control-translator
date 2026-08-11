@@ -1,0 +1,9 @@
+# The repository owner approves all production changes.
+* @BevanSin
+
+# Security and delivery controls always require owner review.
+/.github/ @BevanSin
+/SECURITY.md @BevanSin
+/pyproject.toml @BevanSin
+/src/control_translator/distribute/ @BevanSin
+/src/control_translator/validate/ @BevanSin

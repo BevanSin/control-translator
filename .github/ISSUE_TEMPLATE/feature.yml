@@ -1,0 +1,63 @@
+name: Feature
+description: Propose a user-facing or engineering capability.
+title: "[Feature] "
+labels:
+  - "type: feature"
+body:
+  - type: markdown
+    attributes:
+      value: Provide enough context and acceptance evidence for an agent to implement this safely.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user or engineering problem, not only a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable behavior when this is complete.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and data considerations
+      description: Note impacts to secrets, uploads, URLs, networking, dependencies, Azure artifacts, or user data.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation approach
+      description: Identify tests, fixtures, or measurable checks that demonstrate completion.
+    validations:
+      required: true
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation impact
+      description: Identify documentation that should change, or explain why none is needed.
+    validations:
+      required: true
