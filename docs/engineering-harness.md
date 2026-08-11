@@ -49,8 +49,8 @@ After these files reach `main`, configure a branch ruleset for `main`:
 4. Require the CI, CodeQL, Dependency Review, and PR Policy checks.
 5. Require branches to be up to date before merging.
 6. Block force pushes and branch deletion.
-7. Enable secret scanning, push protection, Dependabot alerts, and private
-   vulnerability reporting.
+7. Enable the dependency graph, secret scanning, push protection, Dependabot
+   alerts, and private vulnerability reporting.
 8. Permit Copilot coding agent in the repository, but do not grant merge bypass.
 
 GitHub check names are visible after the workflows have run once. Add required

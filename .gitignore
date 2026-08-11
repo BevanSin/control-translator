@@ -53,7 +53,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 dist/
-build/
+/build/
 
 # ── editor / OS ───────────────────────────────────────────────────────────────
 .DS_Store
