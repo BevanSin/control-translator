@@ -65,6 +65,23 @@ Security evidence or reviewer notes:
     assert result.returncode == 0
 
 
+def test_security_sensitive_pr_requires_review_checkbox() -> None:
+    result = run_policy(
+        """## Security review
+
+- [ ] Security review completed
+
+Security evidence or reviewer notes:
+- Permission scope was reviewed.
+## Documentation
+""",
+        "security-sensitive",
+    )
+
+    assert result.returncode == 1
+    assert "complete the security review checkbox" in result.stdout
+
+
 def test_non_security_sensitive_pr_is_unaffected() -> None:
     result = run_policy(
         """## Security review
