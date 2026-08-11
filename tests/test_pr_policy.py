@@ -45,7 +45,7 @@ Security evidence or reviewer notes:
     )
 
     assert result.returncode == 1
-    assert "substantive content" in result.stdout
+    assert "substantive content under" in result.stdout
 
 
 def test_security_sensitive_pr_accepts_multiline_evidence() -> None:
