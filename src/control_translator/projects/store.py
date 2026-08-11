@@ -187,7 +187,7 @@ class ProjectStore:
         _validate_project_id(project_id)
         path = self.data_root / project_id
         try:
-            path.resolve().relative_to(self.data_root)
+            path.resolve(strict=False).relative_to(self.data_root)
         except ValueError as exc:
             raise ProjectPathError("Project identifier escapes the data root.") from exc
         return path
