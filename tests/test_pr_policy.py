@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("bash") is None,
+    reason="pull-request policy tests require Bash",
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_SCRIPT = ROOT / ".github" / "scripts" / "enforce-pr-policy.sh"
