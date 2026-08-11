@@ -16,6 +16,15 @@ pytest
 pytest tests\test_smoke.py::test_pipeline_builds_and_publishes -v
 ```
 
+Before completing a code change, run the smallest targeted test that covers it,
+then run:
+
+```powershell
+python -m ruff check src tests
+pytest
+python -m build
+```
+
 ## Architecture
 
 This is a **six-stage pipeline** that translates compliance frameworks (CSV exports) into deployable Azure Policy initiatives:
@@ -43,3 +52,27 @@ Each stage has its own subpackage under `src/control_translator/` with a factory
 - **Optional dependencies by stage**: Core runs on stdlib only. Heavy deps (azure, openai, anthropic, openpyxl) are optional extras installed per-need.
 - **Tests use offline fixtures**: Tests rely on `tests/fixtures/` sample data and the `config/sample.json` config to run without Azure/LLM access.
 - **OOS (Out-of-Scope) register**: A two-tier exclusion system (global + framework-specific) with automatic staleness detection for Preview→GA policy transitions.
+
+## Agent Delivery Rules
+
+- Work from a GitHub issue with explicit scope, acceptance criteria, validation,
+  security, and documentation requirements.
+- Create a branch and pull request. Never commit directly to `main`, merge your
+  own pull request, or bypass a required check.
+- Keep pull requests focused. Add follow-up work to the backlog rather than
+  bundling unrelated changes.
+- Preserve user-owned `data/`, uploaded standards, mapping stores, `.env` files,
+  and generated `out/` artifacts. Use temporary paths in tests.
+- Never add live endpoints, credentials, tenant identifiers, or private
+  compliance content to source, tests, logs, issues, or pull requests.
+- Keep cloud-backed behavior optional. CI and default tests must run offline
+  using fixtures or fakes.
+- Add regression tests for bug fixes and acceptance tests for behavior changes.
+- Apply `major-change` when architecture, user behavior, configuration, generated
+  artifacts, or deployment changes materially. Update `README.md` or `docs/` in
+  the same pull request.
+- Apply `security-sensitive` to changes involving authentication, secrets,
+  uploads, URL fetching, networking, subprocesses, parsers, dependencies, or
+  generated Azure deployment artifacts. Complete the security review section.
+- Include commands run and acceptance evidence in the pull request description.
+- Close the linked issue only after its acceptance criteria are verified.

@@ -1,0 +1,36 @@
+name: Bootstrap Labels
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/bootstrap-labels.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  labels:
+    name: Create repository labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh label create "agent-ready" --color "1D76DB" --description "Ready for autonomous implementation" --force
+          gh label create "major-change" --color "B60205" --description "Material behavior or architecture change; documentation required" --force
+          gh label create "security-sensitive" --color "D93F0B" --description "Requires explicit security review evidence" --force
+          gh label create "status: blocked" --color "000000" --description "Waiting for a decision or external dependency" --force
+          gh label create "type: feature" --color "A2EEEF" --description "New or changed capability" --force
+          gh label create "type: bug" --color "D73A4A" --description "Incorrect behavior" --force
+          gh label create "type: documentation" --color "0075CA" --description "Documentation change" --force
+          gh label create "type: dependencies" --color "0366D6" --description "Dependency update" --force
+          gh label create "type: maintenance" --color "CFD3D7" --description "Engineering maintenance" --force
+          gh label create "type: security" --color "B60205" --description "Security improvement or remediation" --force

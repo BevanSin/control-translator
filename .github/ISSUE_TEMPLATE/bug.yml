@@ -1,0 +1,53 @@
+name: Bug
+description: Report reproducible incorrect behavior.
+title: "[Bug] "
+labels:
+  - "type: bug"
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Use synthetic inputs and remove secrets and tenant data.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Diagnostic evidence
+      description: Include sanitized errors, versions, and configuration details.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] A regression test reproduces the failure.
+        - [ ] The test passes with the fix.
+        - [ ] Existing offline tests remain green.
+    validations:
+      required: true
+  - type: dropdown
+    id: security
+    attributes:
+      label: Could this be security-sensitive?
+      options:
+        - "No"
+        - "Unsure"
+        - "Yes - I will report it privately instead"
+    validations:
+      required: true

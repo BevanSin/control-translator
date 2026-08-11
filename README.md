@@ -2,6 +2,10 @@
 
 > CLI command: `ct` · MCP server: `ct-mcp`
 
+Development is governed through GitHub Issues and agent-prepared pull requests.
+See the [contribution guide](CONTRIBUTING.md) and
+[engineering harness](docs/engineering-harness.md).
+
 Turn any compliance framework into a deployable **Azure Policy initiative** — automatically.
 
 You give it a security standard (like NZISM or IRAP/ISM). It uses an LLM to figure out

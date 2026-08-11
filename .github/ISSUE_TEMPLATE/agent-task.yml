@@ -1,0 +1,63 @@
+name: Agent task
+description: Define an implementation-ready task for Copilot coding agent.
+title: "[Agent] "
+labels:
+  - "agent-ready"
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Explain why this work is needed and identify relevant existing behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      placeholder: |
+        - ...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Required validation
+      description: Specify tests, builds, generated artifact checks, or other evidence.
+    validations:
+      required: true
+  - type: dropdown
+    id: docs
+    attributes:
+      label: Documentation requirement
+      options:
+        - Documentation update required
+        - No documentation change expected
+    validations:
+      required: true
+  - type: dropdown
+    id: security
+    attributes:
+      label: Security review requirement
+      options:
+        - Standard automated checks
+        - Security-sensitive review required
+    validations:
+      required: true
