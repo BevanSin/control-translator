@@ -25,7 +25,8 @@ the default branch. Labels describe type and required handling:
 
 - `agent-ready`: sufficiently specified for autonomous implementation.
 - `major-change`: material product or architecture change; documentation required.
-- `security-sensitive`: explicit security review evidence required.
+- `security-sensitive`: a checked security-review checkbox and substantive
+  evidence or reviewer notes in the pull request are required.
 - `type: feature`, `type: bug`, `type: documentation`, `type: dependencies`,
   `type: maintenance`, `type: security`: backlog categories.
 - `status: blocked`: needs a decision or external dependency.
@@ -36,8 +37,10 @@ the default branch. Labels describe type and required handling:
 - **CI / package**: builds both source and wheel distributions and verifies installation.
 - **CodeQL**: scans Python changes and the default branch.
 - **Dependency Review**: blocks vulnerable dependency additions in pull requests.
-- **PR Policy**: enforces documentation for `major-change` and review evidence for
-  `security-sensitive`.
+- **PR Policy**: enforces documentation for `major-change`. A
+  `security-sensitive` pull request must include the completed review checkbox
+  and non-placeholder content below `Security evidence or reviewer notes:`
+  before the next level-two heading.
 
 ## Repository settings
 
