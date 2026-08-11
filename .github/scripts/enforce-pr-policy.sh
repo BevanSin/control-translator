@@ -25,7 +25,7 @@ if [[ ",$LABELS," == *",security-sensitive,"* ]]; then
   )"
   has_security_evidence=false
   while IFS= read -r evidence_line; do
-    evidence_line="$(sed -E 's/^[[:space:]]*([-*][[:space:]]*)?//; s/[[:space:]]+$//' <<< "$evidence_line")"
+    evidence_line="$(sed -E 's/^[[:space:]]*([-*][[:space:]]*)?//; s/[[:space:].!]+$//' <<< "$evidence_line")"
     evidence_line="$(tr '[:upper:]' '[:lower:]' <<< "$evidence_line")"
     case "$evidence_line" in
       ""|"n/a"|"none"|"tbd"|"todo"|"not applicable")

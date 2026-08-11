@@ -30,7 +30,7 @@ def run_policy(body: str, labels: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize("evidence", ["", "N/A", "- TBD"])
+@pytest.mark.parametrize("evidence", ["", "N/A", "- TBD."])
 def test_security_sensitive_pr_requires_substantive_evidence(evidence: str) -> None:
     result = run_policy(
         f"""## Security review
