@@ -31,20 +31,4 @@ jobs:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           PR_BODY: ${{ github.event.pull_request.body }}
         shell: bash
-        run: |
-          set -euo pipefail
-          changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
-
-          if [[ ",$LABELS," == *",major-change,"* ]]; then
-            if ! grep -Eq '^(README\.md|CONTRIBUTING\.md|SECURITY\.md|docs/)' <<< "$changed_files"; then
-              echo "::error::Pull requests labeled major-change must update README.md, CONTRIBUTING.md, SECURITY.md, or docs/."
-              exit 1
-            fi
-          fi
-
-          if [[ ",$LABELS," == *",security-sensitive,"* ]]; then
-            if ! grep -Fqi -- "- [x] Security review completed" <<< "$PR_BODY"; then
-              echo "::error::Pull requests labeled security-sensitive must complete the security review checkbox and provide evidence."
-              exit 1
-            fi
-          fi
+        run: bash .github/scripts/enforce-pr-policy.sh
