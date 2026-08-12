@@ -33,7 +33,7 @@ MAX_REDIRECTS = 3
 _CSV_EXTENSIONS = frozenset({".csv"})
 _SPREADSHEET_EXTENSIONS = frozenset({".xls", ".xlsx", ".xlsm"})
 _ALL_EXTENSIONS = _CSV_EXTENSIONS | _SPREADSHEET_EXTENSIONS
-_FORMULA_PREFIXES = ("=", "+", "-", "@")
+_FORMULA_PREFIXES = ("=", "+", "@")
 _CSV_MIME_TYPES = frozenset({
     "text/csv",
     "application/csv",
@@ -115,6 +115,7 @@ class SourceIngestionService:
         timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
     ) -> IngestedSource:
         payload, extension, content_type = self._download(url=url, timeout_seconds=timeout_seconds)
+        self._enforce_size_limit(payload)
         normalized_csv, rows, columns = self._normalize_payload(extension, payload)
         return self._persist(project_id=project_id, normalized_csv=normalized_csv, rows=rows, columns=columns,
                              content_type=content_type)

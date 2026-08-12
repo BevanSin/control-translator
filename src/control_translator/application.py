@@ -151,8 +151,6 @@ class ControlTranslatorService:
             raise SourceUnsupportedError("Source upload is not supported.") from exc
         except SourceTooLargeError as exc:
             raise SourceLimitError("Source upload exceeds configured limits.") from exc
-        except UnsafeSourceURLError as exc:
-            raise SourceUnsafeURLError("URL source destination is not permitted.") from exc
         except MalformedSourceError as exc:
             raise SourceIngestionFailedError("Source upload is malformed.") from exc
         except (SourceIngestionError, OSError) as exc:

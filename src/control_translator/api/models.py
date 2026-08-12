@@ -19,6 +19,7 @@ _MAX_BATCH_ITEMS = 100
 _MAX_FILENAME_LENGTH = 255
 _MAX_URL_LENGTH = 2048
 _MAX_CONTENT_TYPE_LENGTH = 200
+_MIN_HTTPS_URL_LENGTH = len("https://")
 
 _Identifier = Annotated[str, Field(min_length=1, max_length=_MAX_IDENTIFIER_LENGTH)]
 _Reason = Annotated[str, Field(min_length=1, max_length=_MAX_REASON_LENGTH)]
@@ -148,7 +149,7 @@ class UploadSourceRequest(BaseModel):
 
 class IngestUrlRequest(BaseModel):
     config_path: str | None = Field(default=None, max_length=_MAX_CONFIG_PATH_LENGTH)
-    url: str = Field(min_length=8, max_length=_MAX_URL_LENGTH)
+    url: str = Field(min_length=_MIN_HTTPS_URL_LENGTH, max_length=_MAX_URL_LENGTH)
     timeout_seconds: int = Field(default=10, ge=1, le=30)
 
 
