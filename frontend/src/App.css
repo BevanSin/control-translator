@@ -164,6 +164,17 @@ h3 {
   font-weight: 700;
 }
 
+.notice.subtle {
+  background: var(--surface-muted);
+  font-weight: 600;
+}
+
+.lock-text {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
 .grid-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(18rem, 0.65fr);
@@ -183,6 +194,10 @@ h3 {
   color: var(--accent);
   background: var(--accent-soft);
   font-weight: 800;
+}
+
+.badge.live {
+  color: var(--success);
 }
 
 .state-card {
@@ -208,6 +223,103 @@ h3 {
   list-style: none;
 }
 
+.run-list,
+.event-list {
+  display: grid;
+  gap: 0.7rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.run-card {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(6rem, 1fr) auto minmax(10rem, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  justify-items: start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  color: var(--text-primary);
+  background: var(--surface-strong);
+  text-align: left;
+}
+
+.run-card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.run-detail {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--surface-strong);
+}
+
+.state-pill {
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  font-size: 0.85rem;
+  font-weight: 900;
+}
+
+.state-pill.running,
+.state-pill.queued {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.state-pill.succeeded {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success), transparent 86%);
+}
+
+.state-pill.failed,
+.state-pill.cancelled {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger), transparent 86%);
+}
+
+.event-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  background: var(--surface);
+}
+
+.event-list li.warning-event,
+.warning-box {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning), transparent 88%);
+}
+
+.warning-box {
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  padding: 0.8rem 1rem;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.event-sequence,
+.event-stage {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
 .project-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -218,6 +330,10 @@ h3 {
 .card-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.left-actions {
+  justify-content: flex-start;
 }
 
 .status-panel {
@@ -247,6 +363,25 @@ h3 {
   margin-left: 0;
 }
 
+.source-summary {
+  margin-top: 1rem;
+}
+
+.radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem;
+}
+
+.radio-row legend {
+  padding: 0 0.35rem;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -274,7 +409,9 @@ h3 {
 
   .app-header,
   .grid-layout,
-  .bootstrap {
+  .bootstrap,
+  .run-card,
+  .event-list li {
     grid-template-columns: 1fr;
   }
 
