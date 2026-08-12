@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import base64
 
 import pytest
 
@@ -376,3 +377,45 @@ def test_error_responses_never_include_filesystem_paths(api):
     body = resp.json()
     assert resp.status_code in (400, 403)
     assert "/definitely/not/a/real/path.json" not in json.dumps(body)
+
+
+def test_upload_source_ingests_csv_and_stays_project_scoped(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+
+    payload = base64.b64encode(b"h1,h2\r\nv1,v2\r\n").decode("ascii")
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/sources/upload",
+        json={
+            "config_path": config_path,
+            "filename": "upload.csv",
+            "content_type": "text/csv",
+            "content": payload,
+        },
+        headers=_auth(token),
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["filename"].endswith(".csv")
+    assert body["project_path"].startswith("source/")
+    assert body["rows"] == 2
+
+    stored = service.project_store.resolve_path(project_id, body["project_path"]).read_text(encoding="utf-8")
+    assert stored == "h1,h2\nv1,v2\n"
+
+
+def test_source_url_rejects_private_destination_without_leaking_input(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+    url = "https://127.0.0.1/source.csv"
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/sources/url",
+        json={"config_path": config_path, "url": url, "timeout_seconds": 5},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "source_unsafe_url"
+    assert "127.0.0.1" not in json.dumps(resp.json())

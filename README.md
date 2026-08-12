@@ -87,10 +87,11 @@ version. A future unsupported version is rejected rather than silently changed.
 Migration is explicit: back up the data root, install a release that supports the
 required migration, then migrate a copy before replacing the original workspace.
 
-The service does not automatically copy config-referenced source, mapping, OOS,
-catalogue, or output files into these directories. For full project isolation,
-an application must place those files in the workspace and set every config path
-accordingly. See the [service data and recovery guide](docs/service-architecture.md).
+The CLI and MCP service do not automatically copy config-referenced source,
+mapping, OOS, catalogue, or output files into these directories. For full
+project isolation, place those files in the workspace (or use the local API
+source-ingestion routes below) and set every config path accordingly. See the
+[service data and recovery guide](docs/service-architecture.md).
 
 ## Running it for real
 
@@ -274,11 +275,11 @@ ct-api                      # binds 127.0.0.1:8756; prints the session token to 
 | `GET /projects/{id}/runs/{run_id}/events`, `POST .../cancel` | token | Run event history and cooperative cancellation |
 | `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Pending review + mapping decisions |
 | `POST /projects/{id}/oos` | token | Add policies to the out-of-scope register |
+| `POST /projects/{id}/sources/upload`, `POST .../sources/url` | token | Ingest CSV/XLS uploads or HTTPS URL sources into project-local normalized CSV |
 | `GET /projects/{id}/mappings/{control_id}`, `GET .../mappings/search` | token | Mapping lookups |
 | `GET /projects/{id}/artifacts`, `GET .../artifacts/{resource_name}` | token | Bundle summary + allow-listed artifact resources |
 
-React UI implementation, URL/file ingestion, and remote/multi-user hosting are
-explicitly out of scope for this API foundation.
+Remote/multi-user hosting remains out of scope for this API foundation.
 
 ---
 

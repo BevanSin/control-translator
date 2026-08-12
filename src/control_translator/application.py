@@ -16,7 +16,18 @@ from .config import load_config, resolve
 from .events import EventType, PipelineEvent, Stage
 from .mapping import MappingStore, check_oos_staleness, load_oos_records
 from .models.mapping import Decision
-from .projects import ProjectAlreadyExistsError, ProjectNotFoundError, ProjectStore
+from .projects import (
+    IngestedSource,
+    MalformedSourceError,
+    ProjectAlreadyExistsError,
+    ProjectNotFoundError,
+    ProjectStore,
+    SourceIngestionService,
+    SourceIngestionError,
+    SourceTooLargeError,
+    UnsafeSourceURLError,
+    UnsupportedSourceError,
+)
 from .runs import PipelineService, ProjectRunConflictError, RunRecord, RunState
 from .runs.lock import ProjectMutationLock
 
@@ -87,6 +98,22 @@ class PipelineInProgressError(ApplicationServiceError):
     code = "pipeline_in_progress"
 
 
+class SourceIngestionFailedError(ApplicationServiceError):
+    code = "source_ingestion_failed"
+
+
+class SourceUnsupportedError(ApplicationServiceError):
+    code = "source_unsupported"
+
+
+class SourceLimitError(ApplicationServiceError):
+    code = "source_limit_exceeded"
+
+
+class SourceUnsafeURLError(ApplicationServiceError):
+    code = "source_unsafe_url"
+
+
 class ControlTranslatorService:
     """Project/config, pipeline, and review/mutation operations for adapters."""
 
@@ -96,10 +123,64 @@ class ControlTranslatorService:
         repo_root: str | Path | None = None,
         project_store: ProjectStore | None = None,
         pipeline_service: PipelineService | None = None,
+        source_ingestion_service: SourceIngestionService | None = None,
     ):
         self.repo_root = Path(repo_root or Path(__file__).resolve().parent.parent.parent).resolve()
         self.project_store = project_store or ProjectStore()
         self.pipeline_service = pipeline_service or PipelineService(self.project_store)
+        self.source_ingestion_service = source_ingestion_service or SourceIngestionService(self.project_store)
+
+    def ingest_uploaded_source(
+        self,
+        *,
+        config_path: str | None,
+        resolution_root: str | Path,
+        filename: str,
+        payload: bytes,
+        content_type: str | None,
+    ) -> IngestedSource:
+        project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
+        try:
+            return self.source_ingestion_service.ingest_upload(
+                project_id=project_id,
+                filename=filename,
+                payload=payload,
+                content_type=content_type,
+            )
+        except UnsupportedSourceError as exc:
+            raise SourceUnsupportedError("Source upload is not supported.") from exc
+        except SourceTooLargeError as exc:
+            raise SourceLimitError("Source upload exceeds configured limits.") from exc
+        except UnsafeSourceURLError as exc:
+            raise SourceUnsafeURLError("URL source destination is not permitted.") from exc
+        except MalformedSourceError as exc:
+            raise SourceIngestionFailedError("Source upload is malformed.") from exc
+        except (SourceIngestionError, OSError) as exc:
+            raise SourceIngestionFailedError("Source upload could not be stored.") from exc
+
+    def ingest_url_source(
+        self,
+        *,
+        config_path: str | None,
+        resolution_root: str | Path,
+        url: str,
+        timeout_seconds: int,
+    ) -> IngestedSource:
+        project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
+        try:
+            return self.source_ingestion_service.ingest_url(
+                project_id=project_id,
+                url=url,
+                timeout_seconds=timeout_seconds,
+            )
+        except UnsupportedSourceError as exc:
+            raise SourceUnsupportedError("URL source is not supported.") from exc
+        except SourceTooLargeError as exc:
+            raise SourceLimitError("URL source exceeds configured limits.") from exc
+        except UnsafeSourceURLError as exc:
+            raise SourceUnsafeURLError("URL source destination is not permitted.") from exc
+        except (SourceIngestionError, OSError) as exc:
+            raise SourceIngestionFailedError("URL source could not be ingested.") from exc
 
     def run(
         self,

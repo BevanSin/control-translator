@@ -96,6 +96,39 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         service.project_store.delete(project_id)
 
     @router.post(
+        "/projects/{project_id}/sources/upload",
+        response_model=models.IngestSourceResponse,
+        dependencies=auth_dep,
+        status_code=201,
+    )
+    def upload_source(project_id: str, body: models.UploadSourceRequest) -> models.IngestSourceResponse:
+        _require_matching_project(project_id, body.config_path)
+        ingested = service.ingest_uploaded_source(
+            config_path=body.config_path,
+            resolution_root=_resolution_root(),
+            filename=body.filename,
+            payload=bytes(body.content),
+            content_type=body.content_type,
+        )
+        return models.IngestSourceResponse(**to_dict(ingested))
+
+    @router.post(
+        "/projects/{project_id}/sources/url",
+        response_model=models.IngestSourceResponse,
+        dependencies=auth_dep,
+        status_code=201,
+    )
+    def ingest_url_source(project_id: str, body: models.IngestUrlRequest) -> models.IngestSourceResponse:
+        _require_matching_project(project_id, body.config_path)
+        ingested = service.ingest_url_source(
+            config_path=body.config_path,
+            resolution_root=_resolution_root(),
+            url=body.url,
+            timeout_seconds=body.timeout_seconds,
+        )
+        return models.IngestSourceResponse(**to_dict(ingested))
+
+    @router.post(
         "/projects/{project_id}/runs",
         response_model=models.RunResponse,
         dependencies=auth_dep,

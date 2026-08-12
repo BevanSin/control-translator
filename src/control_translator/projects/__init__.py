@@ -13,6 +13,18 @@ from .store import (
     UnsupportedProjectSchemaError,
     default_data_root,
 )
+from .ingestion import (
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    MAX_REDIRECTS,
+    MAX_SOURCE_BYTES,
+    IngestedSource,
+    MalformedSourceError,
+    SourceIngestionError,
+    SourceIngestionService,
+    SourceTooLargeError,
+    UnsafeSourceURLError,
+    UnsupportedSourceError,
+)
 
 __all__ = [
     "PROJECT_SCHEMA_VERSION",
@@ -26,4 +38,14 @@ __all__ = [
     "ProjectStoreError",
     "UnsupportedProjectSchemaError",
     "default_data_root",
+    "DEFAULT_REQUEST_TIMEOUT_SECONDS",
+    "MAX_REDIRECTS",
+    "MAX_SOURCE_BYTES",
+    "IngestedSource",
+    "MalformedSourceError",
+    "SourceIngestionError",
+    "SourceIngestionService",
+    "SourceTooLargeError",
+    "UnsafeSourceURLError",
+    "UnsupportedSourceError",
 ]
