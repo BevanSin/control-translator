@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from ..projects import ProjectStore
-from .errors import RunNotFoundError
+from .errors import RunMalformedError, RunNotFoundError, UnsupportedRunSchemaError
 from .models import RunRecord, validate_run_id
 
 DEFAULT_MAX_EVENTS = 500
+EVENTS_SCHEMA_VERSION = 1
 
 
 def _atomic_write_json(target: Path, payload: Any) -> None:
@@ -87,14 +88,40 @@ class RunStore:
 
     def save_events(self, run_id: str, events: list[dict], dropped: int) -> None:
         run_dir = self._run_dir(run_id)
-        _atomic_write_json(run_dir / "events.json",
-                            {"dropped_event_count": dropped, "events": events})
+        _atomic_write_json(run_dir / "events.json", {
+            "schema_version": EVENTS_SCHEMA_VERSION,
+            "dropped_event_count": dropped,
+            "events": events,
+        })
 
     def load_events(self, run_id: str) -> list[dict]:
+        _dropped, events = self._load_event_history(run_id)
+        return events
+
+    def load_dropped_event_count(self, run_id: str) -> int:
+        dropped, _events = self._load_event_history(run_id)
+        return dropped
+
+    def _load_event_history(self, run_id: str) -> tuple[int, list[dict]]:
         run_dir = self._run_dir(run_id)
         events_path = run_dir / "events.json"
         if not events_path.exists():
-            return []
+            return 0, []
         with events_path.open(encoding="utf-8") as file:
             data = json.load(file)
-        return list(data.get("events", []))
+        if not isinstance(data, dict):
+            raise RunMalformedError("Event history must be a JSON object.")
+        version = data.get("schema_version")
+        if not isinstance(version, int) or isinstance(version, bool):
+            raise RunMalformedError("Event history has no integer schema_version.")
+        if version != EVENTS_SCHEMA_VERSION:
+            raise UnsupportedRunSchemaError(
+                f"Event history schema version {version} is unsupported "
+                f"(expected {EVENTS_SCHEMA_VERSION}).")
+        events = data.get("events")
+        if not isinstance(events, list):
+            raise RunMalformedError("Event history 'events' must be a list.")
+        dropped = data.get("dropped_event_count", 0)
+        if not isinstance(dropped, int) or isinstance(dropped, bool) or dropped < 0:
+            raise RunMalformedError("Event history has an invalid dropped_event_count.")
+        return dropped, list(events)

@@ -47,9 +47,11 @@ class EventType(str, Enum):
     STAGE_PROGRESS = "stage.progress"
     STAGE_COMPLETED = "stage.completed"
     STAGE_FAILED = "stage.failed"
+    STAGE_CANCELLED = "stage.cancelled"
     WARNING = "run.warning"
     RUN_COMPLETED = "run.completed"
     RUN_FAILED = "run.failed"
+    RUN_CANCELLED = "run.cancelled"
 
 
 class WarningKind(str, Enum):
@@ -158,6 +160,9 @@ class EventEmitter:
         return self.emit(EventType.STAGE_FAILED, stage=stage,
                          error_type=type(error).__name__)
 
+    def stage_cancelled(self, stage: Stage | None) -> PipelineEvent:
+        return self.emit(EventType.STAGE_CANCELLED, stage=stage)
+
     def warning(self, kind: WarningKind, *, stage: Stage | None = None,
                 message: str = "", **summary: Any) -> PipelineEvent:
         return self.emit(EventType.WARNING, stage=stage, message=message,
@@ -169,6 +174,9 @@ class EventEmitter:
     def run_failed(self, error: BaseException, *, stage: Stage | None = None) -> PipelineEvent:
         return self.emit(EventType.RUN_FAILED, stage=stage,
                          error_type=type(error).__name__)
+
+    def run_cancelled(self, *, stage: Stage | None = None) -> PipelineEvent:
+        return self.emit(EventType.RUN_CANCELLED, stage=stage)
 
 
 class ConsoleEventRenderer:

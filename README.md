@@ -288,26 +288,44 @@ Guarantees:
 
 - **Run identity and state** — every run gets a stable id and moves through an
   explicit `queued → running → {succeeded, failed, cancelled}` state machine;
-  invalid transitions raise `InvalidRunStateTransitionError`.
+  invalid transitions raise `InvalidRunStateTransitionError`. Active tracking
+  (threads, cancellation flags) is always scoped to `(project_id, run_id)`, so
+  a run id can never be cancelled or observed from the wrong project.
 - **Durable, bounded history** — run metadata and up to `max_events` (default
   500) sanitized events are written atomically under the project's own
   `runs/<run-id>/` directory, so a new `PipelineService` instance (for example
   after a process restart) can `list()` and `events()` a run it never started.
   Once the bound is exceeded, the oldest events are dropped and
-  `dropped_event_count` records how many.
+  `dropped_event_count` records how many — kept in sync on the run record once
+  the run reaches a terminal state. The event history file is itself
+  schema-versioned; malformed or unsupported-schema history raises a typed
+  error rather than silently returning partial data.
 - **No concurrent mutation** — starting a run acquires a per-project lock file
-  (`runs/.mutation-lock.json`) recording the holder's PID; a second `start()`
-  for the same project raises `ProjectRunConflictError` while a run is active.
-  If the holder process is gone (a crash), the lock is recognised as stale and
-  reclaimed automatically — it is never assumed stale just because it is old.
+  (`runs/.mutation-lock.json`) recording the holder's PID and an ownership
+  token; a second `start()` for the same project raises
+  `ProjectRunConflictError` while a run is active. If the holder process is
+  gone (a crash), the lock is recognised as stale and reclaimed automatically —
+  it is never assumed stale just because it is old, and a holder (or a
+  reclaimer) only ever deletes the exact lock content it just re-verified, so a
+  lock replaced by another process in between is never removed out from under
+  its new owner.
+- **Crash recovery** — a run left `queued`/`running` by a killed process or an
+  unclean restart is never reported as perpetually in-flight: the next time it
+  is observed via `get()`/`list()` in a process not actively tracking it, it is
+  reconciled to `failed` with clearly-labelled, sanitized diagnostics.
 - **Honest, cooperative cancellation** — `cancel()` sets a flag that is only
   checked at safe stage boundaries (the start of each of the six stages, and
   right after a mapping checkpoint has saved the mapping store). A single
   in-flight LLM classification call is **never** interrupted; the run finishes
-  that call before honouring cancellation at the next boundary.
+  that call before honouring cancellation at the next boundary. Cancellation
+  produces a `stage.cancelled`/`run.cancelled` event, never contradictory
+  `stage.failed`/`run.failed` history alongside a `cancelled` run record.
 - **Faithful failures** — the original exception type and a sanitized message
   (using the same secret/URL redaction as pipeline events) are retained on the
-  run record; failures are never turned into a success-shaped result.
+  run record; failures are never turned into a success-shaped result. The
+  worker's lock release and active-run tracking cleanup happen only after the
+  terminal run record has been durably saved, and starting a run cleans up the
+  lock/record if the worker thread itself fails to launch.
 - **Mapping carry-forward preserved** — the service does not alter the config
   or mapping store contract; a run started through `PipelineService` behaves
   identically to calling `run_pipeline` directly.

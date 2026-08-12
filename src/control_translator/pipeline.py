@@ -62,10 +62,16 @@ class PipelineResult:
 
 @contextmanager
 def _stage(emitter: EventEmitter, stage: Stage, message: str = "", **summary):
-    """Emit a stage start event, and a stage failure event if the stage raises."""
+    """Emit a stage start event, and a stage failure/cancellation event if the stage raises."""
     emitter.stage_started(stage, message, **summary)
     try:
         yield
+    except PipelineCancelledError:
+        # Cancellation is not a failure: keep the event history's own terminal
+        # signal consistent with the run's CANCELLED state, not stage/run.failed.
+        emitter.stage_cancelled(stage)
+        emitter.run_cancelled(stage=stage)
+        raise
     except BaseException as exc:
         emitter.stage_failed(stage, exc)
         emitter.run_failed(exc, stage=stage)

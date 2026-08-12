@@ -218,3 +218,150 @@ def test_starting_a_run_for_an_unknown_project_raises(tmp_path):
     from control_translator.projects import ProjectNotFoundError
     with pytest.raises(ProjectNotFoundError):
         service.start("00000000-0000-4000-8000-000000000000", config)
+
+
+def test_cancel_scoped_to_project_cannot_touch_another_projects_run(tmp_path):
+    """A run id is only ever meaningful within the project that started it: a run
+    id collision across two different projects' active runs must not let one
+    project cancel or observe the other's run."""
+    project_store = ProjectStore(tmp_path / "data-root")
+    project_a = project_store.create("A")
+    project_b = project_store.create("B")
+    service = PipelineService(project_store)
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    def _blocking_ingest(*_args, **_kwargs):
+        entered.set()
+        release.wait(timeout=10)
+        raise RuntimeError("stop before mutating anything further")
+
+    import control_translator.pipeline as pipeline_module
+    original = pipeline_module.get_ingestor
+
+    def _patched(*args, **kwargs):
+        ingestor = original(*args, **kwargs)
+        ingestor.ingest = _blocking_ingest
+        return ingestor
+
+    pipeline_module.get_ingestor = _patched
+    try:
+        config_a = _project_config(project_store, project_a.id)
+        handle_a = service.start(project_a.id, config_a)
+        assert entered.wait(timeout=10)
+
+        # project B has no active run with this id at all.
+        with pytest.raises(RunNotFoundError):
+            service.cancel(project_b.id, handle_a.run_id)
+        with pytest.raises(RunNotFoundError):
+            service.get(project_b.id, handle_a.run_id)
+    finally:
+        release.set()
+        pipeline_module.get_ingestor = original
+        record = service.wait(project_a.id, handle_a.run_id, timeout=30)
+    # project A's own run is unaffected by the cross-project cancel attempt.
+    assert record.state is RunState.FAILED
+
+
+def test_cancellation_persists_cancellation_consistent_event_history(tmp_path):
+    """Cancelling a run must not leave contradictory stage.failed/run.failed
+    events alongside a CANCELLED run record."""
+    service, project_store, project_id = _service(tmp_path)
+    config = _project_config(project_store, project_id)
+
+    handle = service.start(project_id, config)
+    service.cancel(project_id, handle.run_id)
+    record = service.wait(project_id, handle.run_id, timeout=30)
+    assert record.state is RunState.CANCELLED
+
+    events = service.events(project_id, handle.run_id)
+    types = [e["type"] for e in events]
+    assert "run.failed" not in types
+    assert "stage.failed" not in types
+    assert "run.cancelled" in types or "stage.cancelled" in types
+
+
+def test_crash_recovery_reconciles_orphaned_running_record(tmp_path):
+    """A record left RUNNING (for example by a killed process) must never be
+    reported as perpetually in-flight by a fresh PipelineService/ProjectStore
+    instance — it must be reconciled to an explicit terminal state."""
+    service, project_store, project_id = _service(tmp_path)
+    run_store = RunStore(project_store, project_id)
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    run_id = "c" * 32
+    run_store.create(RunRecord(id=run_id, project_id=project_id, state=RunState.QUEUED,
+                               created_at=now, updated_at=now))
+    running = run_store.load_record(run_id).transition(
+        RunState.RUNNING, updated_at=now, started_at=now)
+    run_store.save_record(running)
+
+    # Simulate a restart: brand new service instance with no in-memory tracking
+    # of this run at all.
+    restarted = PipelineService(ProjectStore(project_store.data_root))
+
+    reconciled = restarted.get(project_id, run_id)
+    assert reconciled.state is RunState.FAILED
+    assert reconciled.error_type == "RunInterrupted"
+
+    # Reconciliation is also visible through list().
+    listed = {r.id: r for r in restarted.list(project_id)}
+    assert listed[run_id].state is RunState.FAILED
+
+
+def test_event_history_rejects_unsupported_schema_version(tmp_path):
+    service, project_store, project_id = _service(tmp_path)
+    run_store = RunStore(project_store, project_id)
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    run_id = "d" * 32
+    run_store.create(RunRecord(id=run_id, project_id=project_id, state=RunState.QUEUED,
+                               created_at=now, updated_at=now))
+
+    events_path = project_store.resolve_path(project_id, f"runs/{run_id}/events.json")
+    import json as _json
+    events_path.write_text(_json.dumps({"schema_version": 999, "events": [], "dropped_event_count": 0}),
+                           encoding="utf-8")
+
+    from control_translator.runs import UnsupportedRunSchemaError
+    with pytest.raises(UnsupportedRunSchemaError):
+        service.events(project_id, run_id)
+
+
+def test_event_history_rejects_malformed_payload(tmp_path):
+    service, project_store, project_id = _service(tmp_path)
+    run_store = RunStore(project_store, project_id)
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    run_id = "e" * 32
+    run_store.create(RunRecord(id=run_id, project_id=project_id, state=RunState.QUEUED,
+                               created_at=now, updated_at=now))
+
+    events_path = project_store.resolve_path(project_id, f"runs/{run_id}/events.json")
+    import json as _json
+    events_path.write_text(_json.dumps({"schema_version": 1, "events": "not-a-list"}),
+                           encoding="utf-8")
+
+    from control_translator.runs import RunMalformedError
+    with pytest.raises(RunMalformedError):
+        service.events(project_id, run_id)
+
+
+def test_run_record_dropped_event_count_is_updated_through_pipeline_service(tmp_path):
+    """RunRecord.dropped_event_count must reflect the durable, bounded event
+    history once a run completes through the full PipelineService, not just
+    when RunStore is used directly."""
+    service, project_store, project_id = _service(tmp_path)
+    config = _project_config(project_store, project_id)
+
+    tiny_service = PipelineService(project_store, max_events=1)
+    handle = tiny_service.start(project_id, config)
+    record = tiny_service.wait(project_id, handle.run_id, timeout=30)
+
+    assert record.state is RunState.SUCCEEDED
+    assert record.dropped_event_count > 0
+
+    events = tiny_service.events(project_id, handle.run_id)
+    assert len(events) <= 1
