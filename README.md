@@ -52,6 +52,38 @@ dir out\sample-1.0
 
 > If `Activate.ps1` is blocked: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
 
+## Local project workspaces
+
+The existing CLI remains repository-configured. A local application can instead use
+`control_translator.projects.ProjectStore` to isolate each user project under a
+separate application data root. Pass the root explicitly, or set
+`CONTROL_TRANSLATOR_DATA_ROOT`; the platform user-data location is used by default.
+
+Each project has a UUID identifier and contains:
+
+```text
+<data-root>/<project-id>/
+  project.json       # schema-versioned metadata
+  source/            # uploaded standards
+  config/            # project configuration
+  mappings/          # mapping state and corrections
+  guidance/          # local guidance
+  runs/              # run metadata
+  artifacts/         # generated outputs
+```
+
+Project files can contain sensitive compliance material. The store creates directories
+and metadata with owner-only permissions where the platform supports them; access is
+otherwise governed by the account and filesystem hosting the data root. Do not place
+the root in a Git working tree or sync it to an unapproved service. Back it up using
+your approved encrypted backup process. Deleting a project permanently removes only
+its UUID-named project directory; back up anything that must be retained first.
+
+`project.json` is atomically replaced on each metadata update and records its schema
+version. A future unsupported version is rejected rather than silently changed.
+Migration is explicit: back up the data root, install a release that supports the
+required migration, then migrate a copy before replacing the original workspace.
+
 ## Running it for real
 
 This example uses NZISM, but the same flow applies to any framework with a CSV export.

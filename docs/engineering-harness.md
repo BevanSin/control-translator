@@ -65,3 +65,18 @@ checks to the ruleset after that first run.
 environment. It installs the package with development dependencies and verifies
 that the package imports. Cloud-backed tests remain excluded from setup and CI;
 tests must use offline fixtures or fakes.
+
+## Local application data
+
+The package source tree and a local application's project data are separate.
+`ProjectStore` owns a configurable application data root (or the
+platform-appropriate default) and creates one UUID-named directory per project.
+It holds project metadata plus source, configuration, mappings, guidance, run,
+and artifact directories. Project identifiers and resolved child paths are
+validated to remain within that directory.
+
+Local project content may be sensitive. It must not be added to Git, logged, or
+sent to unapproved services. Backups and retention are the responsibility of
+the user or their organisation. Project deletion only removes the selected
+validated project directory, and metadata is schema-versioned and atomically
+written so unsupported future schema versions require an explicit migration.
