@@ -12,6 +12,11 @@ FastAPI phase.
 > [README "Local API" section](../README.md#local-api--secure-loopback-transport-for-a-future-web-ui)
 > for routes and `tests/test_api.py` for its contract/security tests. Remote or
 > multi-user hosting remains out of scope.
+>
+> **Frontend foundation update:** the local React dashboard in `frontend/` uses
+> the same loopback API contracts for project list/create/open/delete flows. It
+> keeps the API session token in tab memory only and leaves ingestion, pipeline,
+> review, guidance, and artifact screens to later increments.
 
 ## Architecture
 
