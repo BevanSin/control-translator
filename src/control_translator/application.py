@@ -403,6 +403,17 @@ class ControlTranslatorService:
         runs = [record.to_dict() for record in records[-20:]]
         return {"count": len(runs), "runs": runs}
 
+    def start_run(self, *, config_path: str | None, resolution_root: str | Path,
+                  do_distribute: bool = True) -> RunRecord:
+        """Start a run and return its initial record without waiting for completion.
+
+        Unlike ``run()``, this never blocks for the run to finish — callers (for
+        example the local API) poll ``pipeline_service.get``/``events`` instead.
+        """
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        handle = self.pipeline_service.start(project_id, config, do_distribute=do_distribute)
+        return self.pipeline_service.get(project_id, handle.run_id)
+
     def _update_decisions(
         self,
         *,
@@ -493,6 +504,41 @@ class ControlTranslatorService:
                 )
             )
 
+    def project_id_for_config(
+        self,
+        config_path: str | None,
+        *,
+        resolution_root: str | Path,
+        default_config_relative: str = "config/nzism-azure.json",
+    ) -> str:
+        """Deterministically derive the project id a config file resolves to.
+
+        Adapters (for example the local API) use this to confirm a caller-supplied
+        project id actually matches the config it is about to operate on, before
+        performing any read or mutation — never trusting the path parameter alone.
+        """
+        target = self._resolve_config_path(
+            config_path, resolution_root=resolution_root,
+            default_config_relative=default_config_relative,
+        )
+        return str(uuid5(NAMESPACE_URL, str(target)))
+
+    @staticmethod
+    def _resolve_config_path(
+        config_path: str | None,
+        *,
+        resolution_root: str | Path,
+        default_config_relative: str = "config/nzism-azure.json",
+    ) -> Path:
+        root = Path(resolution_root).resolve()
+        target = Path(config_path) if config_path else Path(default_config_relative)
+        if not target.is_absolute():
+            target = root / target
+        target = target.resolve()
+        if not target.exists():
+            raise ProjectConfigError(f"Config file does not exist: {target}")
+        return target
+
     def _load_project_config(
         self,
         config_path: str | None,
@@ -501,13 +547,10 @@ class ControlTranslatorService:
         default_config_relative: str = "config/nzism-azure.json",
     ) -> tuple[str, dict]:
         root = Path(resolution_root).resolve()
-        target = Path(config_path) if config_path else Path(default_config_relative)
-        if not target.is_absolute():
-            target = root / target
-        target = target.resolve()
-
-        if not target.exists():
-            raise ProjectConfigError(f"Config file does not exist: {target}")
+        target = self._resolve_config_path(
+            config_path, resolution_root=resolution_root,
+            default_config_relative=default_config_relative,
+        )
         try:
             loaded = load_config(str(target))
             config = resolve(loaded, str(root))
