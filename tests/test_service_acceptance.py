@@ -117,7 +117,7 @@ def test_failure_and_cancellation_are_explicit_terminal_states(tmp_path, monkeyp
         pass
 
     def _fail_build(*_args, **_kwargs):
-        raise _AcceptanceFailure("secret token=acceptance-test")
+        raise _AcceptanceFailure("secret token=REDACTED_TEST_VALUE")
 
     with monkeypatch.context() as patch:
         patch.setattr("control_translator.pipeline.get_builder", _fail_build)
@@ -163,14 +163,15 @@ def test_two_projects_isolate_sources_mappings_artifacts_and_deletion(tmp_path):
     config_a_data = resolve(load_config(str(config_a)), str(tmp_path))
     config_b_data = resolve(load_config(str(config_b)), str(tmp_path))
     mapping_a = MappingStore(config_a_data["mapping"]["store"]).load("sample", "1.0")
-    mapping_b = MappingStore(config_b_data["mapping"]["store"]).load("sample", "1.0")
     control_id = next(iter(mapping_a.mappings))
     application.reject_controls(
         control_ids=[control_id],
         config_path=str(config_a),
         resolution_root=tmp_path,
     )
-    assert mapping_b.mappings[control_id].decision.value == "include"
+    assert MappingStore(config_b_data["mapping"]["store"]).load(
+        "sample", "1.0"
+    ).mappings[control_id].decision.value == "include"
     assert MappingStore(config_a_data["mapping"]["store"]).load(
         "sample", "1.0"
     ).mappings[control_id].decision.value == "ignore"
