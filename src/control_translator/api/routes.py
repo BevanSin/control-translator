@@ -9,13 +9,15 @@ shape the typed response — no pipeline or storage logic is duplicated here.
 from __future__ import annotations
 
 import os
-from typing import Annotated
+from typing import Annotated, Iterable
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 
 from ..application import ApplicationServiceError, ControlTranslatorService, to_dict
 from ..projects import Project
 from ..runs import RunNotFoundError
+from ..runs.lock import ProjectMutationLock
 from . import models
 from .errors import ProjectMismatchError, UnknownArtifactResourceError
 from .security import SessionTokenAuth
@@ -93,7 +95,15 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
 
     @router.delete("/projects/{project_id}", status_code=204, dependencies=auth_dep)
     def delete_project(project_id: str) -> None:
-        service.project_store.delete(project_id)
+        lock = ProjectMutationLock(service.project_store, project_id)
+        deleted = False
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            service.project_store.delete(project_id)
+            deleted = True
+        finally:
+            if not deleted:
+                lock.release()
 
     @router.post(
         "/projects/{project_id}/sources/upload",
@@ -161,10 +171,25 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         response_model=models.RunEventsResponse,
         dependencies=auth_dep,
     )
-    def get_run_events(project_id: str, run_id: str) -> models.RunEventsResponse:
+    def get_run_events(
+        project_id: str,
+        run_id: str,
+        after_sequence: Annotated[int | None, Query(ge=0)] = None,
+    ) -> models.RunEventsResponse:
+        record = service.pipeline_service.get(project_id, run_id)
         events = service.pipeline_service.events(project_id, run_id)
-        safe_events = [_event_response(event) for event in events]
-        return models.RunEventsResponse(count=len(safe_events), events=safe_events)
+        safe_events = _ordered_unique_events(_event_response(event) for event in events)
+        latest_sequence = safe_events[-1].sequence if safe_events else None
+        if after_sequence is not None:
+            safe_events = [event for event in safe_events if event.sequence > after_sequence]
+        terminal_state = record.state.value if record.state.is_terminal else None
+        return models.RunEventsResponse(
+            count=len(safe_events),
+            events=safe_events,
+            dropped_event_count=service.pipeline_service.dropped_event_count(project_id, run_id),
+            latest_sequence=latest_sequence,
+            terminal_state=terminal_state,
+        )
 
     @router.post(
         "/projects/{project_id}/runs/{run_id}/cancel",
@@ -355,3 +380,16 @@ def _event_response(event: dict) -> models.PipelineEventResponse:
         message=message,
         summary=summary,
     )
+
+
+def _ordered_unique_events(
+    events: Iterable[models.PipelineEventResponse],
+) -> list[models.PipelineEventResponse]:
+    ordered: list[models.PipelineEventResponse] = []
+    seen: set[int] = set()
+    for event in sorted(events, key=lambda item: item.sequence):
+        if event.sequence in seen:
+            continue
+        seen.add(event.sequence)
+        ordered.append(event)
+    return ordered

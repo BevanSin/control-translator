@@ -148,6 +148,9 @@ class PipelineService:
     def events(self, project_id: str, run_id: str) -> list[dict]:
         return RunStore(self._project_store, project_id, max_events=self._max_events).load_events(run_id)
 
+    def dropped_event_count(self, project_id: str, run_id: str) -> int:
+        return RunStore(self._project_store, project_id, max_events=self._max_events).load_dropped_event_count(run_id)
+
     def cancel(self, project_id: str, run_id: str) -> None:
         """Request cooperative cancellation of a running run.
 

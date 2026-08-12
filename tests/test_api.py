@@ -7,6 +7,7 @@ import json
 import os
 import time
 import base64
+from datetime import datetime, timezone
 
 import pytest
 
@@ -17,6 +18,9 @@ from control_translator.application import ControlTranslatorService  # noqa: E40
 from control_translator.api.app import MAX_BODY_BYTES, MIN_UPLOAD_BODY_BYTES, create_app  # noqa: E402
 from control_translator.config import load_config, resolve  # noqa: E402
 from control_translator.projects import ProjectStore  # noqa: E402
+from control_translator.runs import RunRecord, RunState  # noqa: E402
+from control_translator.runs.lock import ProjectMutationLock  # noqa: E402
+from control_translator.runs.store import RunStore  # noqa: E402
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -349,6 +353,58 @@ def test_run_event_responses_do_not_expose_output_paths(api, tmp_path):
     )
 
 
+def test_run_events_support_reconnect_safe_sequence_resume(api):
+    client, token, service = api
+    project = service.project_store.create("event-contract")
+    run_id = "f" * 32
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    run_store = RunStore(service.project_store, project.id)
+    run_store.create(RunRecord(id=run_id, project_id=project.id, state=RunState.QUEUED,
+                               created_at=now, updated_at=now))
+    record = run_store.load_record(run_id).transition(
+        RunState.RUNNING, updated_at=now, started_at=now)
+    record = record.transition(RunState.SUCCEEDED, updated_at=now, finished_at=now,
+                               dropped_event_count=2)
+    run_store.save_record(record)
+    run_store.save_events(run_id, [
+        {"schema_version": 1, "type": "stage.completed", "run_id": run_id,
+         "sequence": 4, "timestamp": now, "stage": "map", "summary": {"controls": 2}},
+        {"schema_version": 1, "type": "stage.started", "run_id": run_id,
+         "sequence": 3, "timestamp": now, "stage": "map", "summary": {}},
+        {"schema_version": 1, "type": "stage.started", "run_id": run_id,
+         "sequence": 3, "timestamp": now, "stage": "map", "summary": {}},
+    ], dropped=2)
+
+    resp = client.get(
+        f"/api/v1/projects/{project.id}/runs/{run_id}/events",
+        params={"after_sequence": 3},
+        headers=_auth(token),
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["dropped_event_count"] == 2
+    assert body["latest_sequence"] == 4
+    assert body["terminal_state"] == "succeeded"
+    assert body["count"] == 1
+    assert [event["sequence"] for event in body["events"]] == [4]
+
+
+def test_delete_project_conflicts_while_run_lock_is_held(api):
+    client, token, service = api
+    project = service.project_store.create("locked")
+    lock = ProjectMutationLock(service.project_store, project.id)
+    lock.acquire("a" * 32)
+    try:
+        resp = client.delete(f"/api/v1/projects/{project.id}", headers=_auth(token))
+    finally:
+        lock.release()
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "run_conflict"
+    assert service.project_store.load(project.id).name == "locked"
+
+
 def test_cancel_unknown_run_for_project_returns_404_not_cross_project_state(api, tmp_path):
     client, token, service = api
     config_a = _write_config(tmp_path / "a", framework_id="sample-a")
@@ -409,6 +465,31 @@ def test_upload_source_ingests_csv_and_stays_project_scoped(api, tmp_path):
 
     stored = service.project_store.resolve_path(project_id, body["project_path"]).read_text(encoding="utf-8")
     assert stored == "h1,h2\nv1,v2\n"
+
+
+def test_upload_source_conflicts_while_run_lock_is_held(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+    service.project_store.create("locked source", project_id=project_id)
+    lock = ProjectMutationLock(service.project_store, project_id)
+    lock.acquire("b" * 32)
+    try:
+        resp = client.post(
+            f"/api/v1/projects/{project_id}/sources/upload",
+            json={
+                "config_path": config_path,
+                "filename": "upload.csv",
+                "content_type": "text/csv",
+                "content": base64.b64encode(b"h1,h2\nv1,v2\n").decode("ascii"),
+            },
+            headers=_auth(token),
+        )
+    finally:
+        lock.release()
+
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "pipeline_in_progress"
 
 
 def test_source_url_rejects_private_destination_without_leaking_input(api, tmp_path):

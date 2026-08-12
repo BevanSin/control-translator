@@ -140,13 +140,19 @@ class ControlTranslatorService:
         content_type: str | None,
     ) -> IngestedSource:
         project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
+        lock = ProjectMutationLock(self.project_store, project_id)
         try:
+            lock.acquire(run_id=uuid4().hex)
             return self.source_ingestion_service.ingest_upload(
                 project_id=project_id,
                 filename=filename,
                 payload=payload,
                 content_type=content_type,
             )
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
         except UnsupportedSourceError as exc:
             raise SourceUnsupportedError("Source upload is not supported.") from exc
         except SourceTooLargeError as exc:
@@ -155,6 +161,8 @@ class ControlTranslatorService:
             raise SourceIngestionFailedError("Source upload is malformed.") from exc
         except (SourceIngestionError, OSError) as exc:
             raise SourceIngestionFailedError("Source upload could not be stored.") from exc
+        finally:
+            lock.release()
 
     def ingest_url_source(
         self,
@@ -165,12 +173,18 @@ class ControlTranslatorService:
         timeout_seconds: int,
     ) -> IngestedSource:
         project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
+        lock = ProjectMutationLock(self.project_store, project_id)
         try:
+            lock.acquire(run_id=uuid4().hex)
             return self.source_ingestion_service.ingest_url(
                 project_id=project_id,
                 url=url,
                 timeout_seconds=timeout_seconds,
             )
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
         except UnsupportedSourceError as exc:
             raise SourceUnsupportedError("URL source is not supported.") from exc
         except SourceTooLargeError as exc:
@@ -179,6 +193,8 @@ class ControlTranslatorService:
             raise SourceUnsafeURLError("URL source destination is not permitted.") from exc
         except (SourceIngestionError, OSError) as exc:
             raise SourceIngestionFailedError("URL source could not be ingested.") from exc
+        finally:
+            lock.release()
 
     def run(
         self,

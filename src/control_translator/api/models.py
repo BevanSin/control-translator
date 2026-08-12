@@ -91,6 +91,9 @@ class PipelineEventResponse(BaseModel):
 class RunEventsResponse(BaseModel):
     count: int
     events: list[PipelineEventResponse]
+    dropped_event_count: int = 0
+    latest_sequence: int | None = None
+    terminal_state: str | None = None
 
 
 class ReviewResponse(BaseModel):
