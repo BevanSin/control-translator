@@ -17,6 +17,10 @@ from ..application import (
     PipelineExecutionError,
     PipelineInProgressError,
     ProjectConfigError,
+    SourceIngestionFailedError,
+    SourceLimitError,
+    SourceUnsafeURLError,
+    SourceUnsupportedError,
 )
 from ..projects import (
     ProjectAlreadyExistsError,
@@ -50,6 +54,10 @@ _ERROR_MAP: tuple[tuple[type[Exception], int, str, str], ...] = (
     (ProjectConfigError, 400, "invalid_project_or_config", "Invalid project or configuration."),
     (PipelineInProgressError, 409, "pipeline_in_progress", "Project state is busy with an active pipeline run."),
     (PipelineExecutionError, 502, "pipeline_failed", "Pipeline execution failed."),
+    (SourceUnsupportedError, 400, "source_unsupported", "Source file type or content is not supported."),
+    (SourceLimitError, 413, "source_limit_exceeded", "Source exceeds configured size limits."),
+    (SourceUnsafeURLError, 400, "source_unsafe_url", "Source URL is not permitted."),
+    (SourceIngestionFailedError, 400, "source_ingestion_failed", "Source could not be ingested."),
     (ApplicationServiceError, 400, "application_error", "Request could not be completed."),
     (ProjectNotFoundError, 404, "project_not_found", "Project not found."),
     (ProjectAlreadyExistsError, 409, "project_conflict", "Project already exists."),

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import Base64Bytes, BaseModel, Field
 
 _MAX_NAME_LENGTH = 200
 _MAX_CONFIG_PATH_LENGTH = 4096
@@ -16,6 +16,10 @@ _MAX_IDENTIFIER_LENGTH = 200
 _MAX_REASON_LENGTH = 500
 MAX_QUERY_LENGTH = 200
 _MAX_BATCH_ITEMS = 100
+_MAX_FILENAME_LENGTH = 255
+_MAX_URL_LENGTH = 2048
+_MAX_CONTENT_TYPE_LENGTH = 200
+_MIN_HTTPS_URL_LENGTH = len("https://")
 
 _Identifier = Annotated[str, Field(min_length=1, max_length=_MAX_IDENTIFIER_LENGTH)]
 _Reason = Annotated[str, Field(min_length=1, max_length=_MAX_REASON_LENGTH)]
@@ -134,3 +138,27 @@ class ArtifactSummaryResponse(BaseModel):
 class ArtifactResourceResponse(BaseModel):
     count: int
     items: list[dict]
+
+
+class UploadSourceRequest(BaseModel):
+    config_path: str | None = Field(default=None, max_length=_MAX_CONFIG_PATH_LENGTH)
+    filename: str = Field(min_length=1, max_length=_MAX_FILENAME_LENGTH)
+    content_type: str | None = Field(default=None, max_length=_MAX_CONTENT_TYPE_LENGTH)
+    content: Base64Bytes
+
+
+class IngestUrlRequest(BaseModel):
+    config_path: str | None = Field(default=None, max_length=_MAX_CONFIG_PATH_LENGTH)
+    url: str = Field(min_length=_MIN_HTTPS_URL_LENGTH, max_length=_MAX_URL_LENGTH)
+    timeout_seconds: int = Field(default=10, ge=1, le=30)
+
+
+class IngestSourceResponse(BaseModel):
+    source_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    rows: int
+    columns: int
+    sha256: str
+    project_path: str
