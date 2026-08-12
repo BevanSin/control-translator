@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import threading
 from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
@@ -14,10 +15,11 @@ from .catalogue import get_catalogue
 from .config import load_config, resolve
 from .mapping import MappingStore, check_oos_staleness, load_oos_records
 from .models.mapping import Decision
-from .projects import ProjectAlreadyExistsError, ProjectStore
+from .projects import ProjectAlreadyExistsError, ProjectNotFoundError, ProjectStore
 from .runs import PipelineService, RunState
 
 _MAX_RATIONALE_CHARS = 200
+_RUN_WAIT_TIMEOUT_SECONDS = 300
 _SENSITIVE_TEXT = re.compile(
     r"(key|token|secret|password|passwd|credential|connection[_-]?string|"
     r"signature|authorization|api[_-]?key|https?://)",
@@ -96,7 +98,7 @@ class ControlTranslatorService:
     def run(self, *, config_path: str | None, do_distribute: bool, resolution_root: str | Path) -> RunSummary:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         handle = self.pipeline_service.start(project_id, config, do_distribute=do_distribute)
-        record = self.pipeline_service.wait(project_id, handle.run_id, timeout=60)
+        record = self.pipeline_service.wait(project_id, handle.run_id, timeout=_RUN_WAIT_TIMEOUT_SECONDS)
         events = self.pipeline_service.events(project_id, handle.run_id)
 
         if record.state is RunState.FAILED:
@@ -138,11 +140,16 @@ class ControlTranslatorService:
 
     def review(self, *, config_path: str | None, resolution_root: str | Path) -> ReviewSummary:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
-        self.pipeline_service.wait(
+        record = self.pipeline_service.wait(
             project_id,
             self.pipeline_service.start(project_id, config, do_distribute=False).run_id,
-            timeout=60,
+            timeout=_RUN_WAIT_TIMEOUT_SECONDS,
         )
+        if record.state is RunState.FAILED:
+            detail = f"{record.error_type}: {record.error_message}" if record.error_type else "unknown error"
+            raise PipelineExecutionError(f"Pipeline review refresh failed ({detail}).")
+        if record.state is RunState.CANCELLED:
+            raise PipelineExecutionError("Pipeline review refresh was cancelled before completion.")
 
         fw = config["framework"]
         mapping = MappingStore(config["mapping"]["store"]).load(fw["id"], fw["version"])
@@ -213,7 +220,11 @@ class ControlTranslatorService:
         if not ignore_paths:
             raise ProjectConfigError("No global_ignore paths configured for this project.")
 
-        if register == "framework" and len(ignore_paths) > 1:
+        if register == "framework":
+            if len(ignore_paths) < 2:
+                raise ProjectConfigError(
+                    "Framework register requested, but config.global_ignore does not include a framework-specific path."
+                )
             selected = ignore_paths[-1]
         elif register == "global":
             selected = ignore_paths[0]
@@ -442,11 +453,11 @@ class ControlTranslatorService:
         project_id = str(uuid5(NAMESPACE_URL, str(target)))
         try:
             self.project_store.load(project_id)
-        except Exception:
+        except ProjectNotFoundError:
             try:
                 self.project_store.create(name=target.stem, project_id=project_id)
             except ProjectAlreadyExistsError:
-                pass
+                self.project_store.load(project_id)
         return project_id, config
 
     @staticmethod
@@ -461,10 +472,10 @@ class ControlTranslatorService:
 
     @staticmethod
     def _sanitize_text(text: str) -> str:
-        candidate = text.strip()[:_MAX_RATIONALE_CHARS]
-        if _SENSITIVE_TEXT.search(candidate):
+        clean = text.strip()
+        if _SENSITIVE_TEXT.search(clean):
             return "[redacted]"
-        return candidate
+        return clean[:_MAX_RATIONALE_CHARS]
 
     @staticmethod
     def _validate_identifier(identifier: str) -> None:
@@ -490,12 +501,15 @@ class ControlTranslatorService:
 
 
 _DEFAULT_SERVICE: ControlTranslatorService | None = None
+_SERVICE_LOCK = threading.Lock()
 
 
 def get_application_service() -> ControlTranslatorService:
     global _DEFAULT_SERVICE
     if _DEFAULT_SERVICE is None:
-        _DEFAULT_SERVICE = ControlTranslatorService()
+        with _SERVICE_LOCK:
+            if _DEFAULT_SERVICE is None:
+                _DEFAULT_SERVICE = ControlTranslatorService()
     return _DEFAULT_SERVICE
 
 
