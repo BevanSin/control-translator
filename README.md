@@ -4,7 +4,9 @@
 
 Development is governed through GitHub Issues and agent-prepared pull requests.
 See the [contribution guide](CONTRIBUTING.md) and
-[engineering harness](docs/engineering-harness.md).
+[engineering harness](docs/engineering-harness.md). The implemented local
+service contracts and operator procedures are documented in the
+[Phase 2 service architecture](docs/service-architecture.md).
 
 Turn any compliance framework into a deployable **Azure Policy initiative** — automatically.
 
@@ -54,9 +56,10 @@ dir out\sample-1.0
 
 ## Local project workspaces
 
-The existing CLI remains repository-configured. A local application can instead use
-`control_translator.projects.ProjectStore` to isolate each user project under a
-separate application data root. Pass the root explicitly, or set
+The CLI and MCP server remain config-driven. Their shared application service
+derives a stable project ID from the resolved config-file path and uses that
+project for durable run history. `ProjectStore` lets a local application isolate
+projects beneath a separate data root. Pass the root explicitly, or set
 `CONTROL_TRANSLATOR_DATA_ROOT`; the platform user-data location is used by default.
 
 Each project has a UUID identifier and contains:
@@ -83,6 +86,11 @@ its UUID-named project directory; back up anything that must be retained first.
 version. A future unsupported version is rejected rather than silently changed.
 Migration is explicit: back up the data root, install a release that supports the
 required migration, then migrate a copy before replacing the original workspace.
+
+The service does not automatically copy config-referenced source, mapping, OOS,
+catalogue, or output files into these directories. For full project isolation,
+an application must place those files in the workspace and set every config path
+accordingly. See the [service data and recovery guide](docs/service-architecture.md).
 
 ## Running it for real
 
@@ -202,6 +210,11 @@ claude mcp add ct-mcp -- ct-mcp
 | `ct://bundle-summary` | Latest bundle stats |
 | `ct://run-history` | Pipeline run history |
 
+Tools accept an optional config path. Resources currently resolve the default
+`config/nzism-azure.json` from the server's working directory, so start one
+server per repository/config context. Explicit remote project selection belongs
+to the future HTTP API and is not part of the current MCP contract.
+
 ### Example conversations
 
 - *"What's the current status of the NZISM mapping?"*
@@ -273,6 +286,7 @@ from control_translator.projects import ProjectStore
 from control_translator.runs import PipelineService, RunState
 
 store = ProjectStore()
+project = store.create("Example")
 service = PipelineService(store)
 
 handle = service.start(project.id, config)          # returns a RunHandle
