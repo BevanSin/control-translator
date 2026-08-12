@@ -15,7 +15,8 @@ describe('ApiClient', () => {
 
     await client.listProjects()
 
-    expect(fetchImpl.mock.calls[0][0]).toBe(`${window.location.origin}/api/v1/projects`)
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe(`${window.location.origin}/api/v1/projects`)
   })
 
   it('uses typed project endpoints with the session token header only', async () => {
