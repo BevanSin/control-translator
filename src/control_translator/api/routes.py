@@ -9,13 +9,15 @@ shape the typed response — no pipeline or storage logic is duplicated here.
 from __future__ import annotations
 
 import os
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Query
 
 from ..application import ApplicationServiceError, ControlTranslatorService, to_dict
 from ..projects import Project
 from ..runs import RunNotFoundError
 from . import models
+from .errors import ProjectMismatchError, UnknownArtifactResourceError
 from .security import SessionTokenAuth
 
 # Artifact resources are served from an explicit allow-list of known bundle
@@ -41,7 +43,7 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         """
         derived = service.project_id_for_config(config_path, resolution_root=_resolution_root())
         if derived != project_id:
-            raise HTTPException(status_code=403, detail="Project id does not match the supplied configuration.")
+            raise ProjectMismatchError("Project id does not match the supplied configuration.")
 
     @router.get("/health", response_model=models.HealthResponse)
     def health() -> models.HealthResponse:
@@ -57,7 +59,13 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
 
     @router.post("/projects", response_model=models.ProjectResponse, dependencies=auth_dep, status_code=201)
     def create_project(body: models.CreateProjectRequest) -> models.ProjectResponse:
-        project = service.project_store.create(name=body.name)
+        # A project's id is always derived from the config it will be operated
+        # on with (see project_id_for_config / _require_matching_project) — so
+        # creation must bind to that same derived id up front. Otherwise a
+        # freshly created project could never pass the config-match check any
+        # other route enforces, and would be permanently unusable.
+        project_id = service.project_id_for_config(body.config_path, resolution_root=_resolution_root())
+        project = service.project_store.create(name=body.name, project_id=project_id)
         return _project_response(project)
 
     @router.post(
@@ -68,7 +76,7 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
     def open_project(project_id: str, body: models.OpenProjectRequest) -> models.ProjectStatusResponse:
         _require_matching_project(project_id, body.config_path)
         status = service.status(config_path=body.config_path, resolution_root=_resolution_root())
-        return models.ProjectStatusResponse(project_id=project_id, status=status)
+        return _status_response(project_id, status)
 
     @router.delete("/projects/{project_id}", status_code=204, dependencies=auth_dep)
     def delete_project(project_id: str) -> None:
@@ -186,7 +194,8 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         response_model=models.SearchControlsResponse,
         dependencies=auth_dep,
     )
-    def search_controls(project_id: str, query: str, status: str | None = None, limit: int = 20,
+    def search_controls(project_id: str, query: Annotated[str, Query(min_length=1, max_length=models.MAX_QUERY_LENGTH)],
+                        status: str | None = None, limit: int = 20,
                         config_path: str | None = None) -> models.SearchControlsResponse:
         _require_matching_project(project_id, config_path)
         payload = service.search_controls(
@@ -216,7 +225,7 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
     def artifact_summary(project_id: str, config_path: str | None = None) -> models.ArtifactSummaryResponse:
         _require_matching_project(project_id, config_path)
         summary = service.bundle_summary(config_path=config_path, resolution_root=_resolution_root())
-        return models.ArtifactSummaryResponse(summary=summary)
+        return _artifact_summary_response(summary)
 
     @router.get(
         "/projects/{project_id}/artifacts/{resource_name}",
@@ -226,7 +235,7 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
     def artifact_resource(project_id: str, resource_name: str,
                           config_path: str | None = None) -> models.ArtifactResourceResponse:
         if resource_name not in _ARTIFACT_RESOURCES:
-            raise HTTPException(status_code=404, detail="Unknown artifact resource.")
+            raise UnknownArtifactResourceError("Unknown artifact resource.")
         _require_matching_project(project_id, config_path)
         payload = service.bundle_json_resource(
             config_path=config_path, resolution_root=_resolution_root(), filename=resource_name,
@@ -240,4 +249,34 @@ def _project_response(project: Project) -> models.ProjectResponse:
     return models.ProjectResponse(
         id=project.id, name=project.name,
         created_at=project.created_at, updated_at=project.updated_at,
+    )
+
+
+def _status_response(project_id: str, status: dict) -> models.ProjectStatusResponse:
+    # ``status`` also carries local filesystem paths (mapping_store,
+    # latest_bundle) that must never cross the transport boundary — only the
+    # explicit safe fields below are copied into the response model.
+    return models.ProjectStatusResponse(
+        project_id=project_id,
+        framework=status["framework"],
+        display_name=status["display_name"],
+        store_exists=status["store_exists"],
+        has_bundle=bool(status.get("latest_bundle")),
+        total_mappings=status.get("total_mappings"),
+        approved=status.get("approved"),
+        pending_review=status.get("pending_review"),
+        ignored=status.get("ignored"),
+        last_run=status.get("last_run"),
+    )
+
+
+def _artifact_summary_response(summary: dict) -> models.ArtifactSummaryResponse:
+    # ``summary`` also carries ``bundle_path`` (a local filesystem path) that
+    # must never cross the transport boundary — it is intentionally dropped.
+    return models.ArtifactSummaryResponse(
+        files=summary.get("files", []),
+        policy_definitions=summary.get("policy_definitions"),
+        control_groups=summary.get("control_groups"),
+        multi_control_policies=summary.get("multi_control_policies"),
+        parameters=summary.get("parameters"),
     )

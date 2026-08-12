@@ -17,13 +17,14 @@ from __future__ import annotations
 import sys
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..application import ControlTranslatorService
 from . import routes
-from .errors import DOMAIN_EXCEPTIONS, domain_error_handler
+from .errors import DOMAIN_EXCEPTIONS, domain_error_handler, validation_error_handler
 from .security import (
     ALLOWED_HOSTS,
     DEFAULT_ALLOWED_ORIGINS,
@@ -116,6 +117,7 @@ def create_app(
 
     for exc_type in DOMAIN_EXCEPTIONS:
         app.add_exception_handler(exc_type, domain_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(Exception, domain_error_handler)
 
     require_token = SessionTokenAuth(token)

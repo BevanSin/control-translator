@@ -14,7 +14,7 @@ _MAX_NAME_LENGTH = 200
 _MAX_CONFIG_PATH_LENGTH = 4096
 _MAX_IDENTIFIER_LENGTH = 200
 _MAX_REASON_LENGTH = 500
-_MAX_QUERY_LENGTH = 200
+MAX_QUERY_LENGTH = 200
 _MAX_BATCH_ITEMS = 100
 
 _Identifier = Annotated[str, Field(min_length=1, max_length=_MAX_IDENTIFIER_LENGTH)]
@@ -39,6 +39,7 @@ class ProjectListResponse(BaseModel):
 
 class CreateProjectRequest(BaseModel):
     name: str = Field(min_length=1, max_length=_MAX_NAME_LENGTH)
+    config_path: str | None = Field(default=None, max_length=_MAX_CONFIG_PATH_LENGTH)
 
 
 class OpenProjectRequest(BaseModel):
@@ -47,7 +48,15 @@ class OpenProjectRequest(BaseModel):
 
 class ProjectStatusResponse(BaseModel):
     project_id: str
-    status: dict
+    framework: str
+    display_name: str
+    store_exists: bool
+    has_bundle: bool
+    total_mappings: int | None = None
+    approved: int | None = None
+    pending_review: int | None = None
+    ignored: int | None = None
+    last_run: dict | None = None
 
 
 class StartRunRequest(BaseModel):
@@ -104,7 +113,11 @@ class SearchControlsResponse(BaseModel):
 
 
 class ArtifactSummaryResponse(BaseModel):
-    summary: dict
+    files: list[str]
+    policy_definitions: int | None = None
+    control_groups: int | None = None
+    multi_control_policies: int | None = None
+    parameters: int | None = None
 
 
 class ArtifactResourceResponse(BaseModel):

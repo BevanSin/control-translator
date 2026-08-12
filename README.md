@@ -247,7 +247,14 @@ workstation, not for remote or multi-user hosting:
   the sole guard against cross-project access.
 - **Sanitized errors.** Domain errors map to a small, stable, allow-listed set
   of HTTP responses; no filesystem path, raw exception text, or credential
-  ever appears in a response body.
+  ever appears in a response body. Request validation failures (`422`) use the
+  same sanitized envelope and never echo the submitted value back to the
+  caller.
+- **Config-bound project identity.** A project's id is always the
+  deterministic id derived from its config path (see `project_id_for_config`);
+  `POST /projects` binds to that same id at creation time so every later
+  config-backed route (open, run, review, …) can enforce the identity check
+  above without ever producing an unusable project.
 
 ### Install and run
 
