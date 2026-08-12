@@ -230,6 +230,38 @@ ingest → catalogue → map → build → validate → distribute
 | **validate** | Schema lint and structural checks |
 | **distribute** | Writes versioned bundle to `out/` |
 
+### Pipeline events
+
+Every run emits typed events so the CLI, MCP server, and a future web API can
+follow progress without parsing console text:
+
+```python
+from control_translator.pipeline import run_pipeline
+
+events = []
+result = run_pipeline(config, event_sink=events.append)
+```
+
+| Event type | When | Key summary fields |
+|---|---|---|
+| `run.started` | once, before ingest | `framework`, `version`, `engine`, `classifier` |
+| `stage.started` | entering a stage | stage-specific inputs |
+| `stage.progress` | mapping checkpoints | `mapped`, `total` |
+| `stage.completed` | stage succeeded | stage-specific counts |
+| `stage.failed` | stage raised | `error_type` |
+| `run.warning` | validation lint, OOS staleness, interrupt | `kind`, `count`/`index` |
+| `run.completed` | successful run | `duration_s`, `approved`, `pending`, `lint_errors` |
+| `run.failed` | run aborted | `error_type` |
+
+Contract rules:
+
+- `stage` is one of `ingest`, `catalogue`, `map`, `build`, `validate`, `distribute`.
+- Each event carries `schema_version`, `run_id`, a gapless `sequence`, and a UTC `timestamp`.
+- `summary` holds scalar fields only — control prose, policy lists, and raw
+  exception text are never included, and secret-looking keys are redacted.
+- Omitting `event_sink` installs the console renderer, which reproduces the
+  existing stderr progress output exactly.
+
 ### The mapping engine (the novel part)
 
 The mapper runs two stages per control:
@@ -337,6 +369,7 @@ src/control_translator/
   cli.py              — CLI entrypoint (ct run, ct review, etc.)
   mcp_server.py       — MCP server (ct-mcp)
   pipeline.py         — pipeline orchestration
+  events.py           — structured pipeline events + console renderer
   config.py           — config loading + env var resolution
   ingest/             — framework CSV → normalised catalogue
   catalogue/          — Azure built-in policy pull + cache
