@@ -7,6 +7,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 
 from .ingest import get_ingestor
 from .catalogue import get_catalogue
@@ -35,6 +36,17 @@ def _append_run_log(log_path: str, entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+class PipelineCancelledError(Exception):
+    """Raised by a ``cancel_check`` callback when cooperative cancellation is requested.
+
+    ``run_pipeline`` only checks for cancellation at safe stage boundaries (and at
+    mapping checkpoints, right after the mapping store has been saved). Work already
+    in flight inside a stage — most notably a single in-progress LLM classification
+    call — is never interrupted; cancellation takes effect before the *next* boundary
+    is entered, not mid-call.
+    """
+
+
 @dataclass
 class PipelineResult:
     catalog: Catalog
@@ -50,10 +62,16 @@ class PipelineResult:
 
 @contextmanager
 def _stage(emitter: EventEmitter, stage: Stage, message: str = "", **summary):
-    """Emit a stage start event, and a stage failure event if the stage raises."""
+    """Emit a stage start event, and a stage failure/cancellation event if the stage raises."""
     emitter.stage_started(stage, message, **summary)
     try:
         yield
+    except PipelineCancelledError:
+        # Cancellation is not a failure: keep the event history's own terminal
+        # signal consistent with the run's CANCELLED state, not stage/run.failed.
+        emitter.stage_cancelled(stage)
+        emitter.run_cancelled(stage=stage)
+        raise
     except BaseException as exc:
         emitter.stage_failed(stage, exc)
         emitter.run_failed(exc, stage=stage)
@@ -62,14 +80,26 @@ def _stage(emitter: EventEmitter, stage: Stage, message: str = "", **summary):
 
 def run_pipeline(config: dict, *, do_distribute: bool = True,
                  event_sink: EventSink | None = None,
-                 run_id: str | None = None) -> PipelineResult:
+                 run_id: str | None = None,
+                 cancel_check: Callable[[], None] | None = None) -> PipelineResult:
     """Run the pipeline, emitting structured progress and result events.
 
     When no ``event_sink`` is supplied the console renderer is used, which
     reproduces the human-readable progress the CLI has always written to stderr.
+
+    ``cancel_check``, when supplied, is invoked at safe stage boundaries — before
+    each of the six stages starts, and after each mapping checkpoint has saved the
+    mapping store. It should raise (typically ``PipelineCancelledError``) to abort
+    the run. Cancellation is cooperative: a stage already running to completion
+    (in particular one in-flight LLM classification call) is never interrupted.
     """
     emitter = EventEmitter(
         ConsoleEventRenderer() if event_sink is None else event_sink, run_id)
+
+    def _check_cancel() -> None:
+        if cancel_check is not None:
+            cancel_check()
+
     start_time = time.monotonic()
     start_wall = datetime.now(tz=timezone.utc)
     fw = config["framework"]
@@ -88,6 +118,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
                 f"   [started {start_wall.astimezone().strftime('%H:%M:%S')}]",
                 framework=fw["id"], version=fw["version"],
                 classification_profile=icfg.get("classification_profile", "all")):
+        _check_cancel()
         catalog = get_ingestor(icfg["type"]).ingest(
             icfg["source"], framework_id=fw["id"], version=fw["version"],
             classification_profile=icfg.get("classification_profile", "all"))
@@ -103,6 +134,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
     with _stage(emitter, Stage.CATALOGUE,
                 f"Catalogue — {'loading from cache' if from_cache else 'pulling from ARM (first run)'}",
                 from_cache=from_cache):
+        _check_cancel()
         cat_obj  = get_catalogue(ccfg["type"], cache_path, ccfg)
         policies = cat_obj.builtins()
         # show a breakdown of what was filtered (best-effort — some filters only apply on live pull)
@@ -132,6 +164,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
                 engine=mcfg.get("engine", "keyword"),
                 classifier=mcfg.get("classifier", "—"),
                 carry_forward=n_existing, to_classify=n_controls - n_existing):
+        _check_cancel()
         corrections = load_corrections(mcfg.get("corrections"))
         engine = MappingEngine(
             get_mapper(mcfg.get("engine", "keyword"), mcfg),
@@ -148,6 +181,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
 
         def _checkpoint(result: MappingSet) -> None:
             store.save(result)
+            _check_cancel()
             emitter.stage_progress(Stage.MAP, mapped=len(result.mappings),
                                    total=n_controls)
 
@@ -175,6 +209,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
             pattern_excluded=len(mapping.pattern_excluded or []))
 
     with _stage(emitter, Stage.BUILD, "Build"):
+        _check_cancel()
         bcfg = dict(config["build"])
         ov_path = bcfg.get("parameter_overrides")
         if ov_path and os.path.exists(ov_path):
@@ -199,6 +234,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
             initiative_version=bcfg.get("initiative_version", ""))
 
     with _stage(emitter, Stage.VALIDATE):
+        _check_cancel()
         lint_errors = AzureValidator().lint(bundle)
         for index, lint_error in enumerate(lint_errors):
             emitter.warning(WarningKind.VALIDATION, stage=Stage.VALIDATE,
@@ -209,6 +245,7 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
     if do_distribute:
         with _stage(emitter, Stage.DISTRIBUTE, "Distribute",
                     adapter=config["distribute"]["type"]):
+            _check_cancel()
             adapter = get_adapter(config["distribute"]["type"])
             published_to = adapter.publish(
                 bundle, out_dir=config.get("out_dir", "out"),
