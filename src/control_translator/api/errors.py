@@ -100,4 +100,3 @@ async def validation_error_handler(_request: Request, exc: RequestValidationErro
 
 
 DOMAIN_EXCEPTIONS: tuple[type[Exception], ...] = tuple(entry[0] for entry in _ERROR_MAP)
-

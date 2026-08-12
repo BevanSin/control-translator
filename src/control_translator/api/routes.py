@@ -24,6 +24,19 @@ from .security import SessionTokenAuth
 # files rather than an arbitrary client-supplied filename, so this route can
 # never be used to read anything else out of a project's bundle directory.
 _ARTIFACT_RESOURCES = frozenset({"oos-candidates.json", "oos-reconsidered.json"})
+_SAFE_EVENT_KINDS = frozenset({"validation", "oos-staleness", "interrupted"})
+_EVENT_ACTIONS = {
+    "run.started": "Pipeline started",
+    "run.completed": "Pipeline completed",
+    "run.failed": "Pipeline failed",
+    "run.cancelled": "Pipeline cancelled",
+    "run.warning": "Pipeline warning",
+    "stage.started": "started",
+    "stage.progress": "in progress",
+    "stage.completed": "completed",
+    "stage.failed": "failed",
+    "stage.cancelled": "cancelled",
+}
 
 
 def build_router(service: ControlTranslatorService, require_token: SessionTokenAuth) -> APIRouter:
@@ -117,7 +130,8 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
     )
     def get_run_events(project_id: str, run_id: str) -> models.RunEventsResponse:
         events = service.pipeline_service.events(project_id, run_id)
-        return models.RunEventsResponse(count=len(events), events=events)
+        safe_events = [_event_response(event) for event in events]
+        return models.RunEventsResponse(count=len(safe_events), events=safe_events)
 
     @router.post(
         "/projects/{project_id}/runs/{run_id}/cancel",
@@ -279,4 +293,32 @@ def _artifact_summary_response(summary: dict) -> models.ArtifactSummaryResponse:
         control_groups=summary.get("control_groups"),
         multi_control_policies=summary.get("multi_control_policies"),
         parameters=summary.get("parameters"),
+    )
+
+
+def _event_response(event: dict) -> models.PipelineEventResponse:
+    event_type = str(event.get("type", ""))
+    stage_value = event.get("stage")
+    stage = str(stage_value) if isinstance(stage_value, str) else None
+    action = _EVENT_ACTIONS.get(event_type, "Pipeline event")
+    message = f"{stage.title()} {action}" if stage and event_type.startswith("stage.") else action
+
+    summary: dict[str, bool | int | float | str | None] = {}
+    raw_summary = event.get("summary")
+    if isinstance(raw_summary, dict):
+        for key, value in raw_summary.items():
+            if value is None or isinstance(value, (bool, int, float)):
+                summary[str(key)] = value
+            elif key == "kind" and value in _SAFE_EVENT_KINDS:
+                summary["kind"] = str(value)
+
+    return models.PipelineEventResponse(
+        schema_version=int(event.get("schema_version", 1)),
+        type=event_type,
+        run_id=str(event.get("run_id", "")),
+        sequence=int(event.get("sequence", 0)),
+        timestamp=str(event.get("timestamp", "")),
+        stage=stage,
+        message=message,
+        summary=summary,
     )

@@ -73,9 +73,20 @@ class RunListResponse(BaseModel):
     runs: list[dict]
 
 
+class PipelineEventResponse(BaseModel):
+    schema_version: int
+    type: str
+    run_id: str
+    sequence: int
+    timestamp: str
+    stage: str | None = None
+    message: str
+    summary: dict[str, bool | int | float | str | None]
+
+
 class RunEventsResponse(BaseModel):
     count: int
-    events: list[dict]
+    events: list[PipelineEventResponse]
 
 
 class ReviewResponse(BaseModel):

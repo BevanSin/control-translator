@@ -316,6 +316,32 @@ def test_status_and_artifact_responses_contain_no_filesystem_paths(api, tmp_path
     assert str(tmp_path) not in json.dumps(artifact_body)
 
 
+def test_run_event_responses_do_not_expose_output_paths(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/runs",
+        json={"config_path": config_path, "distribute": True},
+        headers=_auth(token),
+    )
+    run_id = resp.json()["run"]["id"]
+    assert _wait_for_terminal(client, token, project_id, run_id)["state"] == "succeeded"
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/runs/{run_id}/events",
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert str(tmp_path) not in json.dumps(body)
+    assert any(
+        event["stage"] == "distribute" and event["message"] == "Distribute completed"
+        for event in body["events"]
+    )
+
+
 def test_cancel_unknown_run_for_project_returns_404_not_cross_project_state(api, tmp_path):
     client, token, service = api
     config_a = _write_config(tmp_path / "a", framework_id="sample-a")
