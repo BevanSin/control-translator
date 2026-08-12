@@ -230,8 +230,8 @@ to the future HTTP API and is not part of the current MCP contract.
 ## Local API — secure loopback transport for a future web UI
 
 `ct-api` exposes the same project/run/review/artifact operations as the CLI and
-MCP server over a small, versioned HTTP API, as the transport foundation for a
-future browser-based UI. It is designed to be safe on a single developer
+MCP server over a small, versioned HTTP API used by the local browser dashboard.
+It is designed to be safe on a single developer
 workstation, not for remote or multi-user hosting:
 
 - **Loopback only.** Binds to `127.0.0.1` by default and rejects any request
@@ -272,21 +272,28 @@ ct-api                      # binds 127.0.0.1:8756; prints the session token to 
 | `GET /projects`, `POST /projects` | token | List / create local projects |
 | `POST /projects/{id}/open`, `DELETE /projects/{id}` | token | Open (status) / delete a project |
 | `POST /projects/{id}/runs`, `GET .../runs`, `GET .../runs/{run_id}` | token | Start / list / inspect pipeline runs |
-| `GET /projects/{id}/runs/{run_id}/events`, `POST .../cancel` | token | Run event history and cooperative cancellation |
+| `GET /projects/{id}/runs/{run_id}/events?after_sequence=N`, `POST .../cancel` | token | Reconnect-safe run event history and cooperative cancellation |
 | `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Pending review + mapping decisions |
 | `POST /projects/{id}/oos` | token | Add policies to the out-of-scope register |
 | `POST /projects/{id}/sources/upload`, `POST .../sources/url` | token | Ingest CSV/XLSX uploads or HTTPS URL sources into project-local normalized CSV |
 | `GET /projects/{id}/mappings/{control_id}`, `GET .../mappings/search` | token | Mapping lookups |
 | `GET /projects/{id}/artifacts`, `GET .../artifacts/{resource_name}` | token | Bundle summary + allow-listed artifact resources |
 
+The events response returns events ordered by sequence, omits duplicate
+sequences, reports `dropped_event_count`, and includes `latest_sequence` plus a
+single `terminal_state` once the run is durable. Polling clients should persist
+the last rendered sequence and resume with `after_sequence=<last sequence>`;
+history may start after zero when older events have been dropped from the
+bounded store.
+
 Remote/multi-user hosting remains out of scope for this API foundation.
 
 ## Frontend project dashboard
 
 The `frontend/` workspace contains the local-only React + TypeScript dashboard
-for project navigation. It is a Vite application that talks only to the
-authenticated loopback API above; it does not duplicate project, run, or mapping
-domain logic.
+for standards setup and live pipeline monitoring. It is a Vite application that
+talks only to the authenticated loopback API above; it does not duplicate
+project, run, source-ingestion, or mapping domain logic.
 
 ```powershell
 cd frontend
@@ -303,6 +310,26 @@ The token is sent in the `X-CT-Session-Token` header and is kept only in tab
 memory; it is not placed in URLs, logs, localStorage, or other persistent
 browser storage. Theme selection defaults to the operating system preference,
 and only an explicit light/dark choice is persisted.
+
+Dashboard workflow:
+
+1. Create or open a project with the config path that owns it. The status panel
+   shows framework metadata, mapping counts, artifact availability, and the
+   selected run summary without exposing local filesystem paths.
+2. Ingest a standard from a CSV/XLSX upload or HTTPS URL. Validation feedback
+   reports safe metadata (filename, rows, columns, size) and stores normalized
+   content under the project workspace.
+3. Start a full run or review refresh. The dashboard disables duplicate starts,
+   source ingestion, config-path edits, and deletion while a non-terminal run
+   owns the project lock; server-side lock conflicts are still mapped to safe
+   messages.
+4. Monitor the run timeline. The UI polls bounded event history using
+   `after_sequence`, renders events in stable order, highlights warnings, and
+   shows exactly one terminal summary for succeeded, failed, or cancelled runs.
+5. Cancel when needed and keep polling until the durable `cancelled` state is
+   visible. Refreshing or reopening a project reloads run history and resumes
+   monitoring any non-terminal run so interrupted/restarted sessions are
+   explicit rather than silently lost.
 
 ---
 
