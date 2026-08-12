@@ -6,6 +6,7 @@ import json
 import os
 import sys
 
+from .application import get_application_service
 from .config import load_config, resolve
 from .pipeline import run_pipeline
 
@@ -16,40 +17,39 @@ def _load(path: str) -> dict:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    config = _load(args.config)
-    result = run_pipeline(config, do_distribute=not args.no_distribute)
+    service = get_application_service()
+    summary = service.run(
+        config_path=args.config,
+        do_distribute=not args.no_distribute,
+        resolution_root=os.getcwd(),
+    )
 
-    n_controls = sum(1 for _ in result.catalog.controls())
-    approved = result.mapping.approved()
-    pending = result.mapping.pending_review()
-    print(f"framework      : {result.mapping.framework_id} v{result.mapping.version}")
-    print(f"controls       : {n_controls}")
-    print(f"approved       : {len(approved)} control(s) with built-in coverage")
-    print(f"pending review : {len(pending)} (awaiting authority sign-off)")
+    print(f"framework      : {summary.framework}")
+    print(f"controls       : {summary.controls_total}")
+    print(f"approved       : {summary.approved} control(s) with built-in coverage")
+    print(f"pending review : {summary.pending_review} (awaiting authority sign-off)")
 
-    if result.lint_errors:
+    if summary.lint_errors:
         print("\nlint errors:")
-        for e in result.lint_errors:
+        for e in summary.lint_errors:
             print(f"  - {e}")
 
-    if result.published_to:
-        print(f"\npublished -> {result.published_to}")
-    if pending and not approved:
+    if summary.published_to:
+        print(f"\npublished -> {summary.published_to}")
+    if summary.pending_review and not summary.approved:
         print("\nNote: nothing auto-approved. Review pending mappings, set decisions to "
               "'include', and re-run (or enable auto_approve for the baseline).")
-    return 1 if result.lint_errors else 0
+    return 1 if summary.lint_errors else 0
 
 
 def cmd_review(args: argparse.Namespace) -> int:
     """List proposals awaiting sign-off, OOS candidates, and reconsidered OOS entries."""
-    config = _load(args.config)
-    result = run_pipeline(config, do_distribute=False)
+    service = get_application_service()
+    summary = service.review(config_path=args.config, resolution_root=os.getcwd())
 
     # --- OOS reconsidered (highest priority — needs action before next deploy) ---
-    recon_json = result.bundle and result.bundle.files.get("oos-reconsidered.json")
-    if recon_json:
-        import json as _json
-        recon = _json.loads(recon_json)
+    recon = summary.oos_reconsidered
+    if recon:
         print(f"\n{'='*60}")
         print(f"OOS RECONSIDERED ({len(recon)}) — review and remove from global-ignore.json if appropriate")
         print('='*60)
@@ -60,7 +60,7 @@ def cmd_review(args: argparse.Namespace) -> int:
                 print(f"    Now named: {r['current_display_name']}")
 
     # --- Preview auto-excluded ---
-    prev = result.mapping.preview_excluded
+    prev = summary.preview_excluded
     if prev:
         print(f"\n{'='*60}")
         print(f"PREVIEW-EXCLUDED ({len(prev)}) — auto-filtered; will be reconsidered when GA")
@@ -71,14 +71,14 @@ def cmd_review(args: argparse.Namespace) -> int:
             print(f"  ... and {len(prev)-5} more (see out-of-scope.json)")
 
     # --- Pending mapping proposals (authority sign-off gate) ---
-    pending = result.mapping.pending_review()
+    pending = summary.pending
     print(f"\n{'='*60}")
     print(f"PENDING REVIEW ({len(pending)}) — approve by setting decision=include in mapping store")
     print('='*60)
     if not pending:
         print("  nothing pending review.")
     for m in pending:
-        pols = ", ".join(p.display_name or p.policy_id for p in m.policies)
+        pols = ", ".join(p.get("name") or p["id"] for p in m.policies)
         print(f"  [{m.confidence:.2f}] {m.control_id}: {pols}\n          {m.rationale}")
 
     return 0
