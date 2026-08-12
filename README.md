@@ -275,7 +275,7 @@ ct-api                      # binds 127.0.0.1:8756; prints the session token to 
 | `GET /projects/{id}/runs/{run_id}/events`, `POST .../cancel` | token | Run event history and cooperative cancellation |
 | `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Pending review + mapping decisions |
 | `POST /projects/{id}/oos` | token | Add policies to the out-of-scope register |
-| `POST /projects/{id}/sources/upload`, `POST .../sources/url` | token | Ingest CSV/XLS uploads or HTTPS URL sources into project-local normalized CSV |
+| `POST /projects/{id}/sources/upload`, `POST .../sources/url` | token | Ingest CSV/XLSX uploads or HTTPS URL sources into project-local normalized CSV |
 | `GET /projects/{id}/mappings/{control_id}`, `GET .../mappings/search` | token | Mapping lookups |
 | `GET /projects/{id}/artifacts`, `GET .../artifacts/{resource_name}` | token | Bundle summary + allow-listed artifact resources |
 

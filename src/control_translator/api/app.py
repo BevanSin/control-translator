@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..application import ControlTranslatorService
+from ..projects import MAX_SOURCE_BYTES
 from . import routes
 from .errors import DOMAIN_EXCEPTIONS, domain_error_handler, validation_error_handler
 from .security import (
@@ -40,7 +41,8 @@ DEFAULT_PORT = 8756
 # Refuse any request body larger than this before it reaches a route handler,
 # so a misbehaving or malicious client cannot exhaust memory with an oversized
 # payload against a local-only service.
-MAX_BODY_BYTES = 1 * 1024 * 1024
+MIN_UPLOAD_BODY_BYTES = ((MAX_SOURCE_BYTES + 2) // 3) * 4
+MAX_BODY_BYTES = MIN_UPLOAD_BODY_BYTES + (256 * 1024)
 
 
 class _BodySizeLimitMiddleware(BaseHTTPMiddleware):

@@ -14,7 +14,7 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from control_translator.application import ControlTranslatorService  # noqa: E402
-from control_translator.api.app import MAX_BODY_BYTES, create_app  # noqa: E402
+from control_translator.api.app import MAX_BODY_BYTES, MIN_UPLOAD_BODY_BYTES, create_app  # noqa: E402
 from control_translator.config import load_config, resolve  # noqa: E402
 from control_translator.projects import ProjectStore  # noqa: E402
 
@@ -95,6 +95,12 @@ def test_oversized_body_is_rejected(api):
     )
     assert resp.status_code == 413
     assert resp.json()["error"]["code"] == "payload_too_large"
+
+
+def test_body_cap_allows_max_sized_base64_upload_payloads():
+    assert MAX_BODY_BYTES >= MIN_UPLOAD_BODY_BYTES
+    # Keep a bounded transport cap rather than allowing unbounded local requests.
+    assert MAX_BODY_BYTES <= 4 * 1024 * 1024
 
 
 def test_malformed_identifiers_are_rejected_with_typed_validation(api):
