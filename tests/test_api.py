@@ -287,12 +287,14 @@ def test_status_and_artifact_responses_contain_no_filesystem_paths(api, tmp_path
     config_path = _write_config(tmp_path)
     project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
 
-    client.post(
+    resp = client.post(
         f"/api/v1/projects/{project_id}/runs",
         json={"config_path": config_path, "distribute": True},
         headers=_auth(token),
     )
-    time.sleep(0.5)
+    run_id = resp.json()["run"]["id"]
+    record = _wait_for_terminal(client, token, project_id, run_id)
+    assert record["state"] == "succeeded"
 
     resp = client.post(
         f"/api/v1/projects/{project_id}/open", json={"config_path": config_path}, headers=_auth(token),
