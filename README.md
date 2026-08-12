@@ -296,10 +296,13 @@ npm run build     # production bundle with local static assets only
 ```
 
 Start `ct-api` separately, then paste the printed session token into the
-dashboard bootstrap form. The token is sent in the `X-CT-Session-Token` header
-and is kept only in tab memory; it is not placed in URLs, logs, localStorage, or
-other persistent browser storage. Theme selection defaults to the operating
-system preference, and only an explicit light/dark choice is persisted.
+dashboard bootstrap form. Vite development and preview servers proxy
+same-origin `/api` requests to the loopback API, preserving its empty CORS
+allow-list. Explicit API origins are restricted to HTTP loopback addresses.
+The token is sent in the `X-CT-Session-Token` header and is kept only in tab
+memory; it is not placed in URLs, logs, localStorage, or other persistent
+browser storage. Theme selection defaults to the operating system preference,
+and only an explicit light/dark choice is persisted.
 
 ---
 

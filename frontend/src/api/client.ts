@@ -39,7 +39,7 @@ export class ApiClient {
   private readonly fetchImpl: typeof fetch
 
   constructor({ baseUrl, getSessionToken, fetchImpl = fetch }: ApiClientOptions) {
-    this.baseUrl = normalizeBaseUrl(baseUrl)
+    this.baseUrl = baseUrl
     this.getSessionToken = getSessionToken
     this.fetchImpl = fetchImpl
   }
@@ -75,13 +75,14 @@ export class ApiClient {
     if (!token) {
       throw new ApiClientError('Connect with the local session token before using the dashboard.', 401)
     }
+    const baseUrl = normalizeBaseUrl(this.baseUrl)
 
     const headers = new Headers(options.body === undefined ? undefined : { 'Content-Type': 'application/json' })
     headers.set(SESSION_HEADER, token)
 
     let response: Response
     try {
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      response = await this.fetchImpl(`${baseUrl}${path}`, {
         method: options.method ?? 'GET',
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -121,5 +122,26 @@ async function toSafeError(response: Response): Promise<ApiClientError> {
 
 function normalizeBaseUrl(value: string): string {
   const trimmed = value.trim().replace(/\/+$/, '')
-  return trimmed || window.location.origin
+  const candidate = trimmed || window.location.origin
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    throw invalidOriginError()
+  }
+
+  const isLoopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]'
+  const isOriginOnly = url.pathname === '/' && !url.search && !url.hash
+  if (url.protocol !== 'http:' || !isLoopback || !isOriginOnly || url.username || url.password) {
+    throw invalidOriginError()
+  }
+  return url.origin
+}
+
+function invalidOriginError(): ApiClientError {
+  return new ApiClientError(
+    'Use the same-origin connection or an HTTP loopback origin such as http://127.0.0.1:8756.',
+    0,
+    'invalid_api_origin',
+  )
 }

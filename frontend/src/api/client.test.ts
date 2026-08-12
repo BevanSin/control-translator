@@ -9,6 +9,15 @@ const project = {
 }
 
 describe('ApiClient', () => {
+  it('uses the current loopback origin when no explicit origin is configured', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ count: 0, projects: [] }))
+    const client = new ApiClient({ baseUrl: '', getSessionToken: () => 'token', fetchImpl: fetchImpl as unknown as typeof fetch })
+
+    await client.listProjects()
+
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${window.location.origin}/api/v1/projects`)
+  })
+
   it('uses typed project endpoints with the session token header only', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ count: 1, projects: [project] }))
     const client = new ApiClient({ baseUrl: 'http://127.0.0.1:8756/', getSessionToken: () => 'secret-token', fetchImpl: fetchImpl as unknown as typeof fetch })
@@ -48,6 +57,23 @@ describe('ApiClient', () => {
       code: 'invalid_project_or_config',
       message: 'The request could not be processed. Check the project details and try again.',
     } satisfies Partial<ApiClientError>)
+  })
+
+  it.each([
+    'https://127.0.0.1:8756',
+    'http://example.com:8756',
+    'http://127.0.0.1.evil.example:8756',
+    'http://user:password@127.0.0.1:8756',
+    'http://127.0.0.1:8756/prefix',
+    'http://127.0.0.1:8756?redirect=evil',
+  ])('rejects unsafe API origin %s before sending the token', async (baseUrl) => {
+    const fetchImpl = vi.fn()
+    const client = new ApiClient({ baseUrl, getSessionToken: () => 'secret-token', fetchImpl: fetchImpl as unknown as typeof fetch })
+
+    await expect(client.listProjects()).rejects.toMatchObject({
+      code: 'invalid_api_origin',
+    } satisfies Partial<ApiClientError>)
+    expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
 

@@ -60,23 +60,72 @@ describe('project dashboard', () => {
     expect(within(statusPanel).getByText('12')).toBeInTheDocument()
     expect(within(statusPanel).getByText('3')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /delete/i }))
+    const deleteTrigger = screen.getByRole('button', { name: /^delete$/i })
+    await user.click(deleteTrigger)
     expect(screen.getByRole('dialog', { name: /delete sample framework/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /cancel/i })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: /delete project/i })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: /cancel/i })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(deleteTrigger).toHaveFocus()
+
+    await user.click(deleteTrigger)
     await user.click(screen.getByRole('button', { name: /delete project/i }))
 
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Sample framework' })).not.toBeInTheDocument())
+    expect(screen.getByRole('heading', { name: 'Projects' })).toHaveFocus()
   })
 
-  it('renders safe API errors rather than raw backend details', async () => {
+  it('keeps connection controls available after a rejected token and permits retry', async () => {
     const user = userEvent.setup()
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'server_error', message: 'Traceback /home/runner/work/private.py' } }, { status: 500 })))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ error: { code: 'unauthorized', message: 'Traceback /home/runner/work/private.py' } }, { status: 401 }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, projects: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    const tokenInput = screen.getByLabelText(/session token/i)
+    await user.type(tokenInput, 'expired-token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+
+    expect(await screen.findByText(/session token was not accepted/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Traceback|\/home\/runner/i)).not.toBeInTheDocument()
+    expect(tokenInput).toBeInTheDocument()
+
+    await user.clear(tokenInput)
+    await user.type(tokenInput, 'current-token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+
+    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument()
+  })
+
+  it('serializes project list refreshes against mutations', async () => {
+    const user = userEvent.setup()
+    const refresh = deferred<Response>()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 1, projects: [project] }))
+      .mockReturnValueOnce(refresh.promise)
+    vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    expect(await screen.findByRole('heading', { name: 'Sample framework' })).toBeInTheDocument()
 
-    expect(await screen.findAllByText('The local API returned an error.')).toHaveLength(2)
-    expect(screen.queryByText(/Traceback|\/home\/runner/i)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /refresh projects/i }))
+
+    expect(screen.getByRole('button', { name: /refresh projects/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /create project/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled()
+
+    refresh.resolve(jsonResponse({ count: 1, projects: [project] }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /refresh projects/i })).toBeEnabled())
   })
 })
 
@@ -86,4 +135,12 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve
+  })
+  return { promise, resolve }
 }

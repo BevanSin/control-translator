@@ -1,11 +1,11 @@
-import { useCallback, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ApiClient, ApiClientError } from './api/client'
 import type { Project, ProjectStatus } from './api/contracts'
 import { useTheme } from './theme/useTheme'
 import './App.css'
 
-const DEFAULT_API_BASE = 'http://127.0.0.1:8756'
+const DEFAULT_API_BASE = ''
 const DEFAULT_CONFIG_PATH = 'config/nzism-azure.json'
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
@@ -24,43 +24,83 @@ function App() {
   const [newProjectName, setNewProjectName] = useState('')
   const [createConfigPath, setCreateConfigPath] = useState(DEFAULT_CONFIG_PATH)
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null)
+  const [isMutating, setIsMutating] = useState(false)
+  const projectsRequestVersion = useRef(0)
+  const deleteDialogRef = useRef<HTMLElement>(null)
+  const deleteCancelRef = useRef<HTMLButtonElement>(null)
+  const deleteTriggerRef = useRef<HTMLButtonElement>(null)
+  const dashboardHeadingRef = useRef<HTMLHeadingElement>(null)
 
   const client = useMemo(
     () => new ApiClient({ baseUrl: apiBaseUrl, getSessionToken: () => sessionToken }),
     [apiBaseUrl, sessionToken],
   )
 
-  const loadProjects = useCallback(async () => {
+  const loadProjects = useCallback(async (): Promise<boolean> => {
+    const requestVersion = ++projectsRequestVersion.current
     setLoadState('loading')
     setMessage('')
     try {
-      setProjects(await client.listProjects())
+      const nextProjects = await client.listProjects()
+      if (requestVersion !== projectsRequestVersion.current) {
+        return false
+      }
+      setProjects(nextProjects)
       setLoadState('ready')
+      return true
     } catch (error) {
+      if (requestVersion !== projectsRequestVersion.current) {
+        return false
+      }
       setLoadState('error')
       setMessage(safeMessage(error))
+      return false
     }
   }, [client])
 
   async function connect(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsConnected(true)
-    await loadProjects()
+    if (await loadProjects()) {
+      setIsConnected(true)
+    }
+  }
+
+  function disconnect() {
+    projectsRequestVersion.current += 1
+    setIsConnected(false)
+    setSessionToken('')
+    setProjects([])
+    setLoadState('idle')
+    setIsMutating(false)
+    setMessage('')
+    setStatus(null)
+    setActiveProjectName('')
   }
 
   async function createProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const requestVersion = ++projectsRequestVersion.current
     setMessage('')
+    setIsMutating(true)
     try {
       const project = await client.createProject({
         name: newProjectName,
         config_path: toOptionalPath(createConfigPath),
       })
+      if (requestVersion !== projectsRequestVersion.current) {
+        return
+      }
       setNewProjectName('')
       setProjects((current) => sortProjects([project, ...current.filter((item) => item.id !== project.id)]))
       setMessage(`Created ${project.name}.`)
     } catch (error) {
-      setMessage(safeMessage(error))
+      if (requestVersion === projectsRequestVersion.current) {
+        setMessage(safeMessage(error))
+      }
+    } finally {
+      if (requestVersion === projectsRequestVersion.current) {
+        setIsMutating(false)
+      }
     }
   }
 
@@ -80,25 +120,84 @@ function App() {
     if (!deleteTarget) {
       return
     }
+    const requestVersion = ++projectsRequestVersion.current
     setMessage('')
+    setIsMutating(true)
     try {
       await client.deleteProject(deleteTarget.id)
+      if (requestVersion !== projectsRequestVersion.current) {
+        return
+      }
       setProjects((current) => current.filter((project) => project.id !== deleteTarget.id))
       if (status?.project_id === deleteTarget.id) {
         setStatus(null)
         setActiveProjectName('')
       }
       setMessage(`Deleted ${deleteTarget.name}.`)
+      deleteTriggerRef.current = null
       setDeleteTarget(null)
     } catch (error) {
-      setMessage(safeMessage(error))
+      if (requestVersion === projectsRequestVersion.current) {
+        setMessage(safeMessage(error))
+      }
+    } finally {
+      if (requestVersion === projectsRequestVersion.current) {
+        setIsMutating(false)
+      }
     }
   }
 
+  useEffect(() => {
+    if (!deleteTarget) {
+      return
+    }
+    deleteCancelRef.current?.focus()
+    return () => {
+      const trigger = deleteTriggerRef.current
+      if (trigger?.isConnected) {
+        trigger.focus()
+      } else {
+        dashboardHeadingRef.current?.focus()
+      }
+    }
+  }, [deleteTarget])
+
+  function closeDeleteDialog() {
+    setDeleteTarget(null)
+  }
+
+  function handleDeleteDialogKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      closeDeleteDialog()
+      return
+    }
+    if (event.key !== 'Tab' || !deleteDialogRef.current) {
+      return
+    }
+
+    const focusable = Array.from(deleteDialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled])'))
+    const first = focusable.at(0)
+    const last = focusable.at(-1)
+    if (!first || !last) {
+      return
+    }
+    if (event.shiftKey && (document.activeElement === first || !deleteDialogRef.current.contains(document.activeElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
+  const isProjectsBusy = loadState === 'loading' || isMutating
+
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">Skip to project dashboard</a>
-      <header className="app-header">
+      <div className="app-content" inert={deleteTarget !== null}>
+        <a className="skip-link" href="#main-content">Skip to project dashboard</a>
+        <header className="app-header">
         <div>
           <p className="eyebrow">Control Translator</p>
           <h1>Local project dashboard</h1>
@@ -116,15 +215,15 @@ function App() {
             <option value="light">Light</option>
           </select>
         </label>
-      </header>
+        </header>
 
-      <nav className="app-nav" aria-label="Project sections">
+        <nav className="app-nav" aria-label="Project sections">
         <a href="#projects">Projects</a>
         <a href="#create-project">Create</a>
         <a href="#project-status">Status</a>
-      </nav>
+        </nav>
 
-      <main id="main-content" className="dashboard" tabIndex={-1}>
+        <main id="main-content" className="dashboard" tabIndex={-1}>
         {!isConnected ? (
           <section className="panel bootstrap" aria-labelledby="connect-heading">
             <div>
@@ -137,7 +236,13 @@ function App() {
             <form className="form-grid" onSubmit={connect}>
               <label>
                 <span>API origin</span>
-                <input value={apiBaseUrl} onChange={(event) => setApiBaseUrl(event.target.value)} inputMode="url" />
+                <input
+                  value={apiBaseUrl}
+                  onChange={(event) => setApiBaseUrl(event.target.value)}
+                  inputMode="url"
+                  placeholder="Same origin (recommended)"
+                  disabled={loadState === 'loading'}
+                />
               </label>
               <label>
                 <span>Session token</span>
@@ -147,19 +252,26 @@ function App() {
                   type="password"
                   autoComplete="off"
                   required
+                  disabled={loadState === 'loading'}
                 />
               </label>
-              <button type="submit">Connect</button>
+              <button type="submit" disabled={loadState === 'loading'}>
+                {loadState === 'loading' ? 'Connecting…' : 'Connect'}
+              </button>
             </form>
+            {message ? <div className="notice" role="alert">{message}</div> : null}
           </section>
         ) : (
           <>
             <section className="panel controls" aria-labelledby="dashboard-heading">
               <div>
                 <p className="eyebrow">Authenticated session</p>
-                <h2 id="dashboard-heading">Projects</h2>
+                <h2 ref={dashboardHeadingRef} id="dashboard-heading" tabIndex={-1}>Projects</h2>
               </div>
-              <button type="button" className="secondary" onClick={loadProjects}>Refresh projects</button>
+              <div className="card-actions">
+                <button type="button" className="secondary" onClick={loadProjects} disabled={isProjectsBusy}>Refresh projects</button>
+                <button type="button" className="secondary" onClick={disconnect}>Disconnect</button>
+              </div>
             </section>
 
             {message ? <div className="notice" role="status">{message}</div> : null}
@@ -177,7 +289,7 @@ function App() {
                       <span>Configuration path</span>
                       <input value={createConfigPath} onChange={(event) => setCreateConfigPath(event.target.value)} maxLength={4096} />
                     </label>
-                    <button type="submit">Create project</button>
+                    <button type="submit" disabled={isProjectsBusy}>Create project</button>
                   </form>
                 </section>
 
@@ -202,7 +314,17 @@ function App() {
                             </div>
                             <div className="card-actions">
                               <button type="button" onClick={() => openProject(project)}>Open</button>
-                              <button type="button" className="danger" onClick={() => setDeleteTarget(project)}>Delete</button>
+                              <button
+                                type="button"
+                                className="danger"
+                                disabled={isProjectsBusy}
+                                onClick={(event) => {
+                                  deleteTriggerRef.current = event.currentTarget
+                                  setDeleteTarget(project)
+                                }}
+                              >
+                                Delete
+                              </button>
                             </div>
                           </article>
                         </li>
@@ -248,16 +370,24 @@ function App() {
             </section>
           </>
         )}
-      </main>
+        </main>
+      </div>
 
       {deleteTarget ? (
         <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-heading">
+          <section
+            ref={deleteDialogRef}
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-heading"
+            onKeyDown={handleDeleteDialogKeyDown}
+          >
             <h2 id="delete-heading">Delete {deleteTarget.name}?</h2>
             <p>This removes the local project workspace. This action cannot be undone from the dashboard.</p>
             <div className="card-actions">
-              <button type="button" className="secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button type="button" className="danger" onClick={deleteProject}>Delete project</button>
+              <button ref={deleteCancelRef} type="button" className="secondary" onClick={closeDeleteDialog}>Cancel</button>
+              <button type="button" className="danger" onClick={deleteProject} disabled={isMutating}>Delete project</button>
             </div>
           </section>
         </div>
