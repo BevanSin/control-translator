@@ -68,7 +68,7 @@ Each project has a UUID identifier and contains:
   config/            # project configuration
   mappings/          # mapping state and corrections
   guidance/          # local guidance
-  runs/              # run metadata
+  runs/              # run metadata + sanitized event history (see PipelineService below)
   artifacts/         # generated outputs
 ```
 
@@ -262,7 +262,57 @@ Contract rules:
 - Omitting `event_sink` installs the console renderer, which reproduces the
   existing stderr progress output exactly.
 
-### The mapping engine (the novel part)
+### Pipeline run service
+
+`control_translator.runs.PipelineService` wraps `run_pipeline` with a durable,
+project-scoped run lifecycle for callers that don't want to touch pipeline
+internals or scrape JSONL files out of `out/`:
+
+```python
+from control_translator.projects import ProjectStore
+from control_translator.runs import PipelineService, RunState
+
+store = ProjectStore()
+service = PipelineService(store)
+
+handle = service.start(project.id, config)          # returns a RunHandle
+record = service.wait(project.id, handle.run_id)     # blocks for tests/CLIs
+assert record.state is RunState.SUCCEEDED
+
+service.list(project.id)                             # every run, oldest first
+service.events(project.id, handle.run_id)             # bounded, sanitized history
+service.cancel(project.id, handle.run_id)             # cooperative cancellation
+```
+
+Guarantees:
+
+- **Run identity and state** — every run gets a stable id and moves through an
+  explicit `queued → running → {succeeded, failed, cancelled}` state machine;
+  invalid transitions raise `InvalidRunStateTransitionError`.
+- **Durable, bounded history** — run metadata and up to `max_events` (default
+  500) sanitized events are written atomically under the project's own
+  `runs/<run-id>/` directory, so a new `PipelineService` instance (for example
+  after a process restart) can `list()` and `events()` a run it never started.
+  Once the bound is exceeded, the oldest events are dropped and
+  `dropped_event_count` records how many.
+- **No concurrent mutation** — starting a run acquires a per-project lock file
+  (`runs/.mutation-lock.json`) recording the holder's PID; a second `start()`
+  for the same project raises `ProjectRunConflictError` while a run is active.
+  If the holder process is gone (a crash), the lock is recognised as stale and
+  reclaimed automatically — it is never assumed stale just because it is old.
+- **Honest, cooperative cancellation** — `cancel()` sets a flag that is only
+  checked at safe stage boundaries (the start of each of the six stages, and
+  right after a mapping checkpoint has saved the mapping store). A single
+  in-flight LLM classification call is **never** interrupted; the run finishes
+  that call before honouring cancellation at the next boundary.
+- **Faithful failures** — the original exception type and a sanitized message
+  (using the same secret/URL redaction as pipeline events) are retained on the
+  run record; failures are never turned into a success-shaped result.
+- **Mapping carry-forward preserved** — the service does not alter the config
+  or mapping store contract; a run started through `PipelineService` behaves
+  identically to calling `run_pipeline` directly.
+
+
 
 The mapper runs two stages per control:
 
@@ -370,6 +420,8 @@ src/control_translator/
   mcp_server.py       — MCP server (ct-mcp)
   pipeline.py         — pipeline orchestration
   events.py           — structured pipeline events + console renderer
+  projects/           — local, isolated project workspace storage
+  runs/               — durable pipeline run service (identity, history, locking, cancellation)
   config.py           — config loading + env var resolution
   ingest/             — framework CSV → normalised catalogue
   catalogue/          — Azure built-in policy pull + cache
