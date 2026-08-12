@@ -330,6 +330,18 @@ Guarantees:
   or mapping store contract; a run started through `PipelineService` behaves
   identically to calling `run_pipeline` directly.
 
+### CLI/MCP compatibility during shared-service migration
+
+`ct` and `ct-mcp` now call shared application services for project/config
+resolution, pipeline execution, and mapping/OOS mutations. Existing commands,
+`--config` usage, output shape, and exit-code behavior are preserved for
+backward compatibility.
+
+- Relative `--config` paths still resolve from the current working directory.
+- Absolute config paths are still supported unchanged.
+- Mapping mutation rules (approve/reject/OOS writes) are implemented once in
+  the shared service layer and reused by both adapters.
+
 
 
 The mapper runs two stages per control:
