@@ -1,6 +1,6 @@
 # control-translator
 
-> CLI command: `ct` · MCP server: `ct-mcp`
+> CLI command: `ct` · MCP server: `ct-mcp` · Local API: `ct-api`
 
 Development is governed through GitHub Issues and agent-prepared pull requests.
 See the [contribution guide](CONTRIBUTING.md) and
@@ -223,6 +223,62 @@ to the future HTTP API and is not part of the current MCP contract.
 - *"Search for controls related to encryption"*
 - *"Add policy abc123 to the OOS register — it requires In-Guest agent"*
 - *"Run the pipeline and tell me what changed"*
+
+---
+
+## Local API — secure loopback transport for a future web UI
+
+`ct-api` exposes the same project/run/review/artifact operations as the CLI and
+MCP server over a small, versioned HTTP API, as the transport foundation for a
+future browser-based UI. It is designed to be safe on a single developer
+workstation, not for remote or multi-user hosting:
+
+- **Loopback only.** Binds to `127.0.0.1` by default and rejects any request
+  whose `Host` header does not name an approved loopback host (defeats DNS
+  rebinding). CORS defaults to an empty origin allow-list, so no web page can
+  read a response even if it can trigger a request.
+- **Ephemeral local session token.** A fresh, high-entropy token is generated
+  each time the process starts and printed to stderr; it is never written to
+  disk. Every state-changing or otherwise sensitive route requires it in the
+  `X-CT-Session-Token` header — only `GET /api/v1/health` is unauthenticated.
+- **Typed, project-scoped contracts.** Requests/responses are pydantic models.
+  Every project-scoped route derives the project id from the supplied config
+  path and rejects the call (`403`) if it does not match the id in the URL —
+  the sole guard against cross-project access.
+- **Sanitized errors.** Domain errors map to a small, stable, allow-listed set
+  of HTTP responses; no filesystem path, raw exception text, or credential
+  ever appears in a response body. Request validation failures (`422`) use the
+  same sanitized envelope and never echo the submitted value back to the
+  caller.
+- **Config-bound project identity.** A project's id is always the
+  deterministic id derived from its config path (see `project_id_for_config`);
+  `POST /projects` binds to that same id at creation time so every later
+  config-backed route (open, run, review, …) can enforce the identity check
+  above without ever producing an unusable project.
+
+### Install and run
+
+```powershell
+pip install -e ".[api]"
+ct-api                      # binds 127.0.0.1:8756; prints the session token to stderr
+```
+
+### Routes (all under `/api/v1`)
+
+| Route | Auth | Purpose |
+|-------|------|---------|
+| `GET /health` | none | Liveness check |
+| `GET /projects`, `POST /projects` | token | List / create local projects |
+| `POST /projects/{id}/open`, `DELETE /projects/{id}` | token | Open (status) / delete a project |
+| `POST /projects/{id}/runs`, `GET .../runs`, `GET .../runs/{run_id}` | token | Start / list / inspect pipeline runs |
+| `GET /projects/{id}/runs/{run_id}/events`, `POST .../cancel` | token | Run event history and cooperative cancellation |
+| `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Pending review + mapping decisions |
+| `POST /projects/{id}/oos` | token | Add policies to the out-of-scope register |
+| `GET /projects/{id}/mappings/{control_id}`, `GET .../mappings/search` | token | Mapping lookups |
+| `GET /projects/{id}/artifacts`, `GET .../artifacts/{resource_name}` | token | Bundle summary + allow-listed artifact resources |
+
+React UI implementation, URL/file ingestion, and remote/multi-user hosting are
+explicitly out of scope for this API foundation.
 
 ---
 
@@ -462,6 +518,7 @@ Raise to 8–10 if your rate limits allow.
 src/control_translator/
   cli.py              — CLI entrypoint (ct run, ct review, etc.)
   mcp_server.py       — MCP server (ct-mcp)
+  api/                — local, loopback-only HTTP API (ct-api)
   pipeline.py         — pipeline orchestration
   events.py           — structured pipeline events + console renderer
   projects/           — local, isolated project workspace storage

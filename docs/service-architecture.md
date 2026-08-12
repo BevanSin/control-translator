@@ -5,6 +5,14 @@ implemented and tested offline. It does not expose an HTTP API, accept uploads,
 or select projects on behalf of a remote user; those remain work for a later
 FastAPI phase.
 
+> **Phase 3 update:** the local, loopback-only HTTP API described in this
+> document as future work now exists as `control_translator.api` (`ct-api`).
+> It calls the same `ControlTranslatorService`/`PipelineService` contracts
+> described below without duplicating pipeline logic. See the
+> [README "Local API" section](../README.md#local-api--secure-loopback-transport-for-a-future-web-ui)
+> for routes and `tests/test_api.py` for its contract/security tests. Remote or
+> multi-user hosting remains out of scope.
+
 ## Architecture
 
 ```text
@@ -175,18 +183,32 @@ are the authoritative human decisions and receive the highest backup priority.
 
 - **Path traversal:** validated project IDs and `resolve_path` prevent absolute
   paths and `..` escapes. Config paths are trusted operator input in Phase 2;
-  do not expose them directly as unauthenticated HTTP input.
+  do not expose them directly as unauthenticated HTTP input. `ct-api` accepts a
+  config path only from an authenticated caller and additionally restricts
+  artifact resource names to a fixed allow-list rather than an arbitrary
+  filename.
 - **Cross-project access:** run storage and active cancellation are keyed by
   `(project_id, run_id)`. A run from one project cannot be read or cancelled
-  through another project.
+  through another project. `ct-api` additionally verifies that a request's
+  URL `project_id` matches the id derived from its supplied `config_path`
+  before performing any read or mutation, rejecting mismatches with `403`.
 - **Sensitive diagnostics:** events use scalar summaries and sanitize
   secret-looking keys, URLs, and exception messages. MCP maps internal errors
-  to generic messages. Sensitive source prose and credentials must never be
-  added to logs.
+  to generic messages. `ct-api` maps every domain exception to a small,
+  allow-listed HTTP response and never returns `str(exc)`. Sensitive source
+  prose and credentials must never be added to logs.
 - **Deletion:** `ProjectStore.delete` accepts only a validated existing project
   UUID and removes that one workspace. Deletion is permanent; authorize it at
   the future transport layer and back up retained records first.
+- **Local API network exposure:** `ct-api` binds to loopback only by default,
+  validates the `Host` header on every request (defeating DNS rebinding), and
+  applies an empty CORS origin allow-list. Every sensitive/state-changing
+  route requires a fresh, high-entropy, per-process session token that is
+  never persisted to disk.
 
 The offline acceptance suite in `tests/test_service_acceptance.py` verifies the
 composed lifecycle, explicit failure/cancellation, redaction, cross-project
-denial, path traversal rejection, and deletion containment.
+denial, path traversal rejection, and deletion containment. `tests/test_api.py`
+covers the additional API-layer security properties (host/origin/token
+enforcement, cross-project rejection, traversal, oversized bodies, and
+cancellation authorization).
