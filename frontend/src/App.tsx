@@ -151,13 +151,14 @@ function App() {
     if (!deleteTarget) {
       return
     }
+    const trigger = deleteTriggerRef.current
+    const fallback = dashboardHeadingRef.current
     deleteCancelRef.current?.focus()
     return () => {
-      const trigger = deleteTriggerRef.current
       if (trigger?.isConnected) {
         trigger.focus()
       } else {
-        dashboardHeadingRef.current?.focus()
+        fallback?.focus()
       }
     }
   }, [deleteTarget])
