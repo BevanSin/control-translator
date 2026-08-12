@@ -286,8 +286,13 @@ class SourceIngestionService:
             text = payload.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
             raise MalformedSourceError("CSV source is malformed.") from exc
+        if "\x00" in text:
+            raise MalformedSourceError("CSV source is malformed.")
 
-        rows, columns = self._parse_csv_rows(csv.reader(io.StringIO(text, newline="")))
+        try:
+            rows, columns = self._parse_csv_rows(csv.reader(io.StringIO(text, newline="")))
+        except csv.Error as exc:
+            raise MalformedSourceError("CSV source is malformed.") from exc
         return self._render_csv(rows), len(rows), columns
 
     def _normalize_workbook(self, payload: bytes) -> tuple[bytes, int, int]:

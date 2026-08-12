@@ -198,7 +198,21 @@ def test_upload_rejects_formula_like_minus_prefix_with_control_whitespace(tmp_pa
         service.ingest_upload(
             project_id=project.id,
             filename="formula.csv",
-            payload=b"col\n\t\x00-2+2\n",
+            payload=b"col\n\t\x1f-2+2\n",
+            content_type="text/csv",
+        )
+
+
+def test_upload_rejects_nul_csv_as_malformed(tmp_path):
+    store = ProjectStore(tmp_path / "projects")
+    project = store.create("ingest")
+    service = SourceIngestionService(store, resolver=_public_resolver)
+
+    with pytest.raises(MalformedSourceError):
+        service.ingest_upload(
+            project_id=project.id,
+            filename="malformed.csv",
+            payload=b"col\nvalue\x00tail\n",
             content_type="text/csv",
         )
 
