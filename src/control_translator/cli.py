@@ -8,6 +8,7 @@ import sys
 
 from .application import get_application_service
 from .config import load_config, resolve
+from .events import ConsoleEventRenderer
 from .pipeline import run_pipeline
 
 
@@ -22,6 +23,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         config_path=args.config,
         do_distribute=not args.no_distribute,
         resolution_root=os.getcwd(),
+        event_sink=ConsoleEventRenderer(),
     )
 
     print(f"framework      : {summary.framework}")
@@ -45,7 +47,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_review(args: argparse.Namespace) -> int:
     """List proposals awaiting sign-off, OOS candidates, and reconsidered OOS entries."""
     service = get_application_service()
-    summary = service.review(config_path=args.config, resolution_root=os.getcwd())
+    summary = service.review(
+        config_path=args.config,
+        resolution_root=os.getcwd(),
+        event_sink=ConsoleEventRenderer(),
+    )
 
     # --- OOS reconsidered (highest priority — needs action before next deploy) ---
     recon = summary.oos_reconsidered

@@ -13,7 +13,25 @@ from __future__ import annotations
 import json
 import os
 
-from mcp.server.fastmcp import FastMCP
+try:
+    from mcp.server.fastmcp import FastMCP
+except ModuleNotFoundError:  # pragma: no cover - exercised in tests via monkeypatch
+    class FastMCP:  # type: ignore[no-redef]
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def tool(self):
+            def _decorator(func):
+                return func
+            return _decorator
+
+        def resource(self, _uri: str):
+            def _decorator(func):
+                return func
+            return _decorator
+
+        def run(self, *args, **kwargs):
+            raise RuntimeError("MCP extra dependencies are not installed.")
 
 from .application import (
     ApplicationServiceError,
@@ -32,13 +50,20 @@ mcp = FastMCP(
     ),
 )
 
+_SAFE_MESSAGES = {
+    "invalid_identifier": "Invalid request identifier.",
+    "invalid_project_or_config": "Invalid project or configuration.",
+    "pipeline_failed": "Pipeline execution failed.",
+    "pipeline_in_progress": "Project state is busy with an active pipeline run.",
+}
+
 
 def _ok(payload: dict) -> str:
     return json.dumps(payload, indent=2)
 
 
 def _error(exc: ApplicationServiceError) -> str:
-    return _ok({"error": {"code": exc.code, "message": str(exc)}})
+    return _ok({"error": {"code": exc.code, "message": _SAFE_MESSAGES.get(exc.code, "Request could not be completed.")}})
 
 
 @mcp.tool()
@@ -216,7 +241,7 @@ def get_bundle_summary() -> str:
 
 @mcp.resource("ct://run-history")
 def get_run_history() -> str:
-    """History of pipeline runs (from run-log.jsonl)."""
+    """History of pipeline runs from project-scoped durable run metadata."""
     try:
         payload = get_application_service().run_history(config_path=None, resolution_root=os.getcwd())
     except ApplicationServiceError as exc:

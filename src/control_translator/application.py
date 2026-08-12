@@ -8,15 +8,17 @@ import os
 from pathlib import Path
 import re
 import threading
-from typing import Literal
-from uuid import NAMESPACE_URL, uuid5
+from typing import Callable, Literal
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from .catalogue import get_catalogue
 from .config import load_config, resolve
+from .events import EventType, PipelineEvent, Stage
 from .mapping import MappingStore, check_oos_staleness, load_oos_records
 from .models.mapping import Decision
 from .projects import ProjectAlreadyExistsError, ProjectNotFoundError, ProjectStore
-from .runs import PipelineService, RunState
+from .runs import PipelineService, ProjectRunConflictError, RunRecord, RunState
+from .runs.lock import ProjectMutationLock
 
 _MAX_RATIONALE_CHARS = 200
 _RUN_WAIT_TIMEOUT_SECONDS = 300
@@ -81,6 +83,10 @@ class PipelineExecutionError(ApplicationServiceError):
     code = "pipeline_failed"
 
 
+class PipelineInProgressError(ApplicationServiceError):
+    code = "pipeline_in_progress"
+
+
 class ControlTranslatorService:
     """Project/config, pipeline, and review/mutation operations for adapters."""
 
@@ -95,17 +101,20 @@ class ControlTranslatorService:
         self.project_store = project_store or ProjectStore()
         self.pipeline_service = pipeline_service or PipelineService(self.project_store)
 
-    def run(self, *, config_path: str | None, do_distribute: bool, resolution_root: str | Path) -> RunSummary:
+    def run(
+        self,
+        *,
+        config_path: str | None,
+        do_distribute: bool,
+        resolution_root: str | Path,
+        event_sink: Callable[[PipelineEvent], None] | None = None,
+    ) -> RunSummary:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         handle = self.pipeline_service.start(project_id, config, do_distribute=do_distribute)
         record = self.pipeline_service.wait(project_id, handle.run_id, timeout=_RUN_WAIT_TIMEOUT_SECONDS)
         events = self.pipeline_service.events(project_id, handle.run_id)
-
-        if record.state is RunState.FAILED:
-            detail = f"{record.error_type}: {record.error_message}" if record.error_type else "unknown error"
-            raise PipelineExecutionError(f"Pipeline run failed ({detail}).")
-        if record.state is RunState.CANCELLED:
-            raise PipelineExecutionError("Pipeline run was cancelled before completion.")
+        self._ensure_run_succeeded(record, context="run")
+        self._replay_events(events, event_sink)
 
         started = next((e for e in events if e.get("type") == "run.started"), {})
         ingest_done = next(
@@ -138,18 +147,21 @@ class ControlTranslatorService:
             published_to=published_to,
         )
 
-    def review(self, *, config_path: str | None, resolution_root: str | Path) -> ReviewSummary:
+    def review(
+        self,
+        *,
+        config_path: str | None,
+        resolution_root: str | Path,
+        event_sink: Callable[[PipelineEvent], None] | None = None,
+    ) -> ReviewSummary:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         record = self.pipeline_service.wait(
             project_id,
             self.pipeline_service.start(project_id, config, do_distribute=False).run_id,
             timeout=_RUN_WAIT_TIMEOUT_SECONDS,
         )
-        if record.state is RunState.FAILED:
-            detail = f"{record.error_type}: {record.error_message}" if record.error_type else "unknown error"
-            raise PipelineExecutionError(f"Pipeline review refresh failed ({detail}).")
-        if record.state is RunState.CANCELLED:
-            raise PipelineExecutionError("Pipeline review refresh was cancelled before completion.")
+        self._ensure_run_succeeded(record, context="review refresh")
+        self._replay_events(self.pipeline_service.events(project_id, record.id), event_sink)
 
         fw = config["framework"]
         mapping = MappingStore(config["mapping"]["store"]).load(fw["id"], fw["version"])
@@ -213,7 +225,7 @@ class ControlTranslatorService:
         if len(policy_ids) != len(reasons):
             raise InvalidIdentifierError("policy_ids and reasons must contain the same number of items.")
 
-        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         ignore_paths = config["mapping"].get("global_ignore", [])
         if isinstance(ignore_paths, str):
             ignore_paths = [ignore_paths]
@@ -231,23 +243,32 @@ class ControlTranslatorService:
         else:
             raise InvalidIdentifierError("register must be either 'global' or 'framework'.")
 
-        existing: list[dict] = []
-        if os.path.exists(selected):
-            with open(selected, encoding="utf-8") as fh:
-                existing = json.load(fh)
+        lock = ProjectMutationLock(self.project_store, project_id)
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            existing: list[dict] = []
+            if os.path.exists(selected):
+                with open(selected, encoding="utf-8") as fh:
+                    existing = json.load(fh)
 
-        added: list[str] = []
-        for policy_id, reason in zip(policy_ids, reasons):
-            existing.append({
-                "policy_id": policy_id,
-                "reason": self._sanitize_text(reason),
-                "oos_date": date.today().isoformat(),
-            })
-            added.append(policy_id)
+            added: list[str] = []
+            for policy_id, reason in zip(policy_ids, reasons):
+                existing.append({
+                    "policy_id": policy_id,
+                    "reason": self._sanitize_text(reason),
+                    "oos_date": date.today().isoformat(),
+                })
+                added.append(policy_id)
 
-        os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
-        with open(selected, "w", encoding="utf-8") as fh:
-            json.dump(existing, fh, indent=2, ensure_ascii=False)
+            os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
+            with open(selected, "w", encoding="utf-8") as fh:
+                json.dump(existing, fh, indent=2, ensure_ascii=False)
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
+        finally:
+            lock.release()
 
         return OOSMutationResult(added=added, register_path=selected)
 
@@ -300,7 +321,7 @@ class ControlTranslatorService:
         return {"count": len(results), "results": results}
 
     def status(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
-        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         fw = config["framework"]
         mapping_path = config["mapping"]["store"]
         mapping_store = MappingStore(mapping_path)
@@ -321,13 +342,9 @@ class ControlTranslatorService:
 
         bundle_dir = self._bundle_dir(config)
         info["latest_bundle"] = str(bundle_dir) if bundle_dir else None
-
-        if bundle_dir:
-            log_path = bundle_dir / "run-log.jsonl"
-            if log_path.exists():
-                lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-                if lines:
-                    info["last_run"] = json.loads(lines[-1])
+        records = self.pipeline_service.list(project_id)
+        if records:
+            info["last_run"] = records[-1].to_dict()
 
         return info
 
@@ -381,15 +398,9 @@ class ControlTranslatorService:
         return summary
 
     def run_history(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
-        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
-        bundle_dir = self._bundle_dir(config)
-        if bundle_dir is None:
-            raise ProjectConfigError("No bundle found.")
-        log_path = bundle_dir / "run-log.jsonl"
-        if not log_path.exists():
-            return {"runs": []}
-        lines = log_path.read_text(encoding="utf-8").strip().splitlines()
-        runs = [json.loads(line) for line in lines[-20:]]
+        project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
+        records = self.pipeline_service.list(project_id)
+        runs = [record.to_dict() for record in records[-20:]]
         return {"count": len(runs), "runs": runs}
 
     def _update_decisions(
@@ -403,31 +414,84 @@ class ControlTranslatorService:
         for control_id in control_ids:
             self._validate_identifier(control_id)
 
-        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         fw = config["framework"]
-        store = MappingStore(config["mapping"]["store"])
-        mapping = store.load(fw["id"], fw["version"])
+        lock = ProjectMutationLock(self.project_store, project_id)
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            store = MappingStore(config["mapping"]["store"])
+            mapping = store.load(fw["id"], fw["version"])
 
-        updated: list[str] = []
-        already_updated: list[str] = []
-        not_found: list[str] = []
+            updated: list[str] = []
+            already_updated: list[str] = []
+            not_found: list[str] = []
 
-        for control_id in control_ids:
-            item = mapping.mappings.get(control_id)
-            if item is None:
-                not_found.append(control_id)
-                continue
-            if item.decision is decision:
-                already_updated.append(control_id)
-                continue
-            item.decision = decision
-            item.source = "human"
-            updated.append(control_id)
+            for control_id in control_ids:
+                item = mapping.mappings.get(control_id)
+                if item is None:
+                    not_found.append(control_id)
+                    continue
+                if item.decision is decision:
+                    already_updated.append(control_id)
+                    continue
+                item.decision = decision
+                item.source = "human"
+                updated.append(control_id)
 
-        if updated:
-            store.save(mapping)
+            if updated:
+                store.save(mapping)
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
+        finally:
+            lock.release()
 
         return MappingMutationResult(updated=updated, already_updated=already_updated, not_found=not_found)
+
+    @staticmethod
+    def _ensure_run_succeeded(record: RunRecord, *, context: str) -> None:
+        if record.state is RunState.SUCCEEDED:
+            return
+        if record.state is RunState.FAILED:
+            detail = f"{record.error_type}: {record.error_message}" if record.error_type else "unknown error"
+            raise PipelineExecutionError(f"Pipeline {context} failed ({detail}).")
+        if record.state is RunState.CANCELLED:
+            raise PipelineExecutionError(f"Pipeline {context} was cancelled before completion.")
+        raise PipelineInProgressError(
+            f"Pipeline {context} is still {record.state.value} after waiting {_RUN_WAIT_TIMEOUT_SECONDS}s."
+        )
+
+    @staticmethod
+    def _replay_events(events: list[dict], event_sink: Callable[[PipelineEvent], None] | None) -> None:
+        if event_sink is None:
+            return
+        for event in events:
+            event_type = event.get("type")
+            if not isinstance(event_type, str):
+                continue
+            try:
+                parsed_type = EventType(event_type)
+            except ValueError:
+                continue
+            stage_value = event.get("stage")
+            stage = None
+            if isinstance(stage_value, str):
+                try:
+                    stage = Stage(stage_value)
+                except ValueError:
+                    stage = None
+            event_sink(
+                PipelineEvent(
+                    type=parsed_type,
+                    run_id=str(event.get("run_id", "")),
+                    sequence=int(event.get("sequence", 0)),
+                    timestamp=str(event.get("timestamp", "")),
+                    stage=stage,
+                    message=str(event.get("message", "")),
+                    summary=event.get("summary", {}) if isinstance(event.get("summary"), dict) else {},
+                )
+            )
 
     def _load_project_config(
         self,
