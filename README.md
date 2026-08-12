@@ -281,6 +281,26 @@ ct-api                      # binds 127.0.0.1:8756; prints the session token to 
 
 Remote/multi-user hosting remains out of scope for this API foundation.
 
+## Frontend project dashboard
+
+The `frontend/` workspace contains the local-only React + TypeScript dashboard
+for project navigation. It is a Vite application that talks only to the
+authenticated loopback API above; it does not duplicate project, run, or mapping
+domain logic.
+
+```powershell
+cd frontend
+npm ci
+npm run dev       # serves the dashboard on 127.0.0.1
+npm run build     # production bundle with local static assets only
+```
+
+Start `ct-api` separately, then paste the printed session token into the
+dashboard bootstrap form. The token is sent in the `X-CT-Session-Token` header
+and is kept only in tab memory; it is not placed in URLs, logs, localStorage, or
+other persistent browser storage. Theme selection defaults to the operating
+system preference, and only an explicit light/dark choice is persisted.
+
 ---
 
 ## How it works
