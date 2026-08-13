@@ -56,7 +56,7 @@ export class ApiClient {
   constructor({ baseUrl, getSessionToken, fetchImpl = fetch }: ApiClientOptions) {
     this.baseUrl = baseUrl
     this.getSessionToken = getSessionToken
-    this.fetchImpl = fetchImpl
+    this.fetchImpl = (input, init) => fetchImpl(input, init)
   }
 
   async listProjects(): Promise<Project[]> {
