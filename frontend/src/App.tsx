@@ -45,6 +45,7 @@ function App() {
   const runRequestVersion = useRef(0)
   const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
+  const terminalRunIdsRef = useRef<Set<string>>(new Set())
   const deleteDialogRef = useRef<HTMLElement>(null)
   const deleteCancelRef = useRef<HTMLButtonElement>(null)
   const deleteTriggerRef = useRef<HTMLButtonElement>(null)
@@ -321,11 +322,12 @@ function App() {
       }
       setPollMessage(response.terminal_state ? `Run reached ${labelRunState(response.terminal_state)}.` : '')
       if (response.terminal_state || isTerminalRun(run)) {
+        terminalRunIdsRef.current.add(run.id)
         runRequestVersion.current += 1
       }
       return run
     } catch (error) {
-      if (requestVersion === runRequestVersion.current) {
+      if (requestVersion === runRequestVersion.current && !terminalRunIdsRef.current.has(runId)) {
         setPollMessage(`${safeMessage(error)} Retrying polling without duplicating events.`)
       }
       return null
