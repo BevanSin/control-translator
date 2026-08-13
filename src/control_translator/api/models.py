@@ -186,7 +186,7 @@ class ArtifactPreviewResponse(BaseModel):
     name: str
     content_type: str
     text: str
-    json: object | None = None
+    parsed_json: object | None = None
     truncated: bool
 
 

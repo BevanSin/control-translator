@@ -741,7 +741,7 @@ class ControlTranslatorService:
             "name": name,
             "content_type": content_type,
             "text": text,
-            "json": parsed,
+            "parsed_json": parsed,
             "truncated": truncated,
         }
 
