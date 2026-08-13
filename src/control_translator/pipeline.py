@@ -130,8 +130,13 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
 
     ccfg = config["catalogue"]
     cache_path = ccfg.get("source")
-    from_cache = bool(cache_path and os.path.exists(cache_path))
     catalogue_kind = ccfg["type"]
+    from_cache = bool(
+        catalogue_kind == "azure"
+        and cache_path
+        and os.path.exists(cache_path)
+        and not ccfg.get("refresh", False)
+    )
     if catalogue_kind == "bundled":
         catalogue_start = "Catalogue — loading bundled Azure snapshot"
     elif catalogue_kind == "offline":

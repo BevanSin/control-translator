@@ -49,6 +49,12 @@ def test_successful_run_emits_ordered_stage_events(tmp_path):
     assert {e.run_id for e in events} == {result.run_id}
     assert [e.sequence for e in events] == list(range(len(events)))
     assert {e.schema_version for e in events} == {EVENT_SCHEMA_VERSION}
+    catalogue_started = next(
+        event
+        for event in events
+        if event.type is EventType.STAGE_STARTED and event.stage is Stage.CATALOGUE
+    )
+    assert catalogue_started.summary["from_cache"] is False
 
     completion = events[-1]
     assert completion.summary["approved"] == len(result.mapping.approved())

@@ -6,6 +6,7 @@ from control_translator.catalogue.base import get_catalogue
 from control_translator.catalogue.snapshot import (
     BundledPolicyCatalogue,
     build_snapshot,
+    snapshot_digest,
     validate_snapshot,
 )
 
@@ -74,6 +75,19 @@ def test_rejects_tampered_or_placeholder_snapshots(tmp_path):
     placeholder["policies"][0]["id"] = "11111111-1111-1111-1111-111111111111"
     with pytest.raises(ValueError, match="invalid Azure policy id"):
         validate_snapshot(placeholder)
+
+
+def test_rejects_duplicate_policy_ids(tmp_path):
+    definitions = tmp_path / "azure-policy" / "built-in-policies" / "policyDefinitions"
+    definitions.mkdir(parents=True)
+    (definitions / "audit.json").write_text(json.dumps(_raw_policy()), encoding="utf-8")
+    payload = build_snapshot(tmp_path / "azure-policy", _COMMIT, "2026-08-14")
+    payload["policies"].append(dict(payload["policies"][0]))
+    payload["policy_count"] = len(payload["policies"])
+    payload["content_sha256"] = snapshot_digest(payload["policies"])
+
+    with pytest.raises(ValueError, match="duplicate policy id"):
+        validate_snapshot(payload)
 
 
 def test_release_contains_a_production_catalogue_snapshot():

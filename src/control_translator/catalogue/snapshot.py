@@ -66,7 +66,7 @@ def validate_snapshot(payload: object) -> tuple[list[dict], SnapshotMetadata]:
     repository = source.get("repository")
     commit = source.get("commit")
     generated_at = source.get("generated_at")
-    if repository != "https://github.com/Azure/azure-policy":
+    if repository != _REPOSITORY:
         raise ValueError("catalogue snapshot source repository is not trusted")
     if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("catalogue snapshot source commit must be a full Git SHA")
@@ -80,8 +80,13 @@ def validate_snapshot(payload: object) -> tuple[list[dict], SnapshotMetadata]:
     expected_count = payload.get("policy_count")
     if expected_count != len(policies) or not policies:
         raise ValueError("catalogue snapshot policy count does not match its contents")
+    policy_ids = set()
     for item in policies:
         _validate_policy(item)
+        normalized_id = item["id"].casefold()
+        if normalized_id in policy_ids:
+            raise ValueError(f"catalogue snapshot contains a duplicate policy id: {item['id']!r}")
+        policy_ids.add(normalized_id)
 
     expected_digest = payload.get("content_sha256")
     actual_digest = snapshot_digest(policies)
@@ -117,13 +122,12 @@ def _load_payload(path: Path) -> object:
 
 
 def build_snapshot(source: Path, source_commit: str, generated_at: str) -> dict:
-    from .azure import AzurePolicyCatalogue, normalize_definition
+    from .azure import can_audit, normalize_definition
 
     definitions_root = source / "built-in-policies" / "policyDefinitions"
     if not definitions_root.is_dir():
         raise ValueError("source does not contain Azure built-in policy definitions")
 
-    catalogue = AzurePolicyCatalogue()
     policies_by_id = {}
     excluded_invalid_ids = 0
     for path in sorted(definitions_root.rglob("*.json")):
@@ -136,7 +140,7 @@ def build_snapshot(source: Path, source_commit: str, generated_at: str) -> dict:
         if (
             definition.display_name.startswith("[Deprecated]")
             or definition.effect.lower() == "manual"
-            or not catalogue._can_audit(definition)
+            or not can_audit(definition)
         ):
             continue
         policies_by_id[definition.id] = {
