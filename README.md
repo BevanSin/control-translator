@@ -229,10 +229,13 @@ to the future HTTP API and is not part of the current MCP contract.
 
 ## Local dashboard — supported offline local product
 
-Install a built wheel with the dashboard extra, then run one command:
+Download the verified `control-translator-dist` artifact from the latest CI run
+or release, extract it, install its wheel with the dashboard extra, then run one
+command:
 
 ```powershell
-pip install "control_translator[web]"
+$wheel = (Get-ChildItem .\control_translator-*.whl).FullName
+pip install "$wheel[web]"
 ct-web
 ```
 

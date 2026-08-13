@@ -108,6 +108,13 @@ jobs:
       - name: Verify distributions and installed launcher
         run: python .github/scripts/verify_web_package.py dist
 
+      - name: Upload verified distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-translator-dist
+          path: dist/*
+          if-no-files-found: error
+
   package-windows:
     name: Package (Windows)
     runs-on: windows-latest
