@@ -252,8 +252,11 @@ loopback listener cleanly.
 Use `ct-web --data-root <directory>` to choose the durable project root. The
 directory must be available and must not be a symlink. If the selected port is
 busy or another launcher already owns it, `ct-web` exits with a deterministic
-message; omit `--port` to select a different available port. Existing data
-roots are forward-compatible only when their project schema is supported:
+message; omit `--port` to select a different available port. An ownership-safe
+lock in the canonical data root prevents two dashboard processes from mutating
+the same projects. A lock left by a terminated process is reclaimed only after
+the recorded process is confirmed dead. Existing data roots are
+forward-compatible only when their project schema is supported:
 back up the root before upgrading, test a copy, and retain the previous wheel
 for rollback. Do not put the data root in this repository, and do not overwrite
 user-owned `data/`, `.env`, `.mcp.json`, source exports, or mapping stores.

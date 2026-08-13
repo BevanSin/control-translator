@@ -7,10 +7,13 @@ from pathlib import Path
 import socket
 import sys
 import webbrowser
+from uuid import uuid4
 
 from .api.app import DEFAULT_HOST, create_app
 from .projects import ProjectStore, default_data_root
 from .application import ControlTranslatorService
+from .runs.errors import ProjectRunConflictError
+from .runs.lock import DataRootInstanceLock
 
 
 def packaged_assets() -> Path:
@@ -76,8 +79,21 @@ def main() -> None:
     try:
         assets = packaged_assets()
         root = validate_data_root(args.data_root if args.data_root is not None else str(default_data_root()))
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(1) from None
+
+    instance_lock = DataRootInstanceLock(root)
+    try:
+        instance_lock.acquire(uuid4().hex)
+    except ProjectRunConflictError:
+        print("Another local dashboard is already using the selected data root.", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    try:
         listener, port = reserve_loopback_port(args.port)
     except RuntimeError as exc:
+        instance_lock.release()
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from None
 
@@ -86,6 +102,7 @@ def main() -> None:
         app = create_app(service=service, static_assets=assets)
     except Exception:  # noqa: BLE001 - startup diagnostics must not disclose local details
         listener.close()
+        instance_lock.release()
         print("The local dashboard could not start.", file=sys.stderr)
         raise SystemExit(1) from None
     url = f"http://{DEFAULT_HOST}:{port}/"
@@ -101,3 +118,4 @@ def main() -> None:
         uvicorn.Server(config).run(sockets=[listener])
     finally:
         listener.close()
+        instance_lock.release()

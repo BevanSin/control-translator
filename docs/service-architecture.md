@@ -17,7 +17,9 @@ scope; all validation is offline and project-local.
 > React dashboard from the same loopback origin as the API. It uses a single
 > pre-bound listener (no probe-then-bind race), an ephemeral fragment bootstrap
 > token that is removed from browser history before rendering, and disabled
-> access logging. The local React dashboard in `frontend/` uses
+> access logging. One ownership-safe lock per canonical data root rejects a
+> second live dashboard and reclaims only locks whose recorded process has
+> terminated. The local React dashboard in `frontend/` uses
 > the same loopback API contracts for project list/create/open/delete, source
 > ingestion, run/review launch, polling, cancellation, durable history, and
 > interrupted-run recovery. It keeps the API session token in tab memory only;
@@ -245,6 +247,10 @@ are the authoritative human decisions and receive the highest backup priority.
   browser history and keeps the token in memory. The launcher does not print
   it except when an operator explicitly requests `--print-token`, and disables
   Uvicorn access logs so diagnostics cannot record request secrets.
+- **Single owner:** one `ct-web` process owns a canonical data root at a time.
+  The lock records the owner PID and a random token, rejects a second live
+  owner without disclosing the root, and removes or reclaims only the exact
+  lock whose owner has terminated.
 
 The offline acceptance suite in `tests/test_service_acceptance.py` verifies the
 composed lifecycle, explicit failure/cancellation, redaction, cross-project

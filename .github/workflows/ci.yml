@@ -39,7 +39,7 @@ jobs:
         run: python -m pip install -e ".[api,dev]"
 
       - name: Lint
-        run: python -m ruff check src tests
+        run: python -m ruff check build_support.py setup.py src tests .github/scripts/verify_web_package.py
 
       - name: Run offline tests
         run: python -m pytest
@@ -92,14 +92,48 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
       - name: Install build tooling
         run: python -m pip install build
 
       - name: Build source and wheel distributions
         run: python -m build
 
-      - name: Verify wheel in a clean environment
-        run: |
-          python -m venv package-venv
-          package-venv/bin/python -m pip install dist/*.whl
-          package-venv/bin/python -c "import control_translator"
+      - name: Verify distributions and installed launcher
+        run: python .github/scripts/verify_web_package.py dist
+
+  package-windows:
+    name: Package (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build tooling
+        run: python -m pip install build
+
+      - name: Build source and wheel distributions
+        run: python -m build
+
+      - name: Verify distributions and installed launcher
+        run: python .github/scripts/verify_web_package.py dist

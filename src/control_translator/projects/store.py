@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 
 PROJECT_SCHEMA_VERSION = 1
+DATA_ROOT_INSTANCE_LOCK_NAME = ".ct-web-instance-lock.json"
 WORKSPACE_DIRECTORIES = ("source", "config", "mappings", "guidance", "runs", "artifacts")
 
 
@@ -133,6 +134,8 @@ class ProjectStore:
             return []
         projects: list[Project] = []
         for path in sorted(self.data_root.iterdir()):
+            if path.name == DATA_ROOT_INSTANCE_LOCK_NAME:
+                continue
             if not path.is_dir() or path.is_symlink():
                 raise ProjectMalformedError(f"Invalid project entry: {path.name}.")
             projects.append(self.load(path.name))
