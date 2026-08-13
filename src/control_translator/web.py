@@ -115,7 +115,10 @@ def main() -> None:
 
     config = uvicorn.Config(app, host=DEFAULT_HOST, port=port, log_level="warning", access_log=False)
     try:
-        uvicorn.Server(config).run(sockets=[listener])
+        try:
+            uvicorn.Server(config).run(sockets=[listener])
+        except KeyboardInterrupt:
+            pass
     finally:
         listener.close()
         instance_lock.release()

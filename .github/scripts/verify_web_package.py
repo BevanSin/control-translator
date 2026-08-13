@@ -20,6 +20,7 @@ import zipfile
 
 TOKEN_PREFIX = "Local session token: "
 URL_PREFIX = "Local dashboard: "
+API_PREFIX = "api/v1"
 
 
 def _assert_assets(names: list[str], artifact: Path) -> None:
@@ -135,11 +136,11 @@ def _smoke_launcher(environment: Path, data_root: Path) -> None:
     executable = _launcher(environment)
     process, token, url = _start_launcher(executable, data_root)
     try:
-        projects = _api_json(f"{url}api/projects", token)
+        projects = _api_json(f"{url}{API_PREFIX}/projects", token)
         if projects != {"count": 0, "projects": []}:
             raise RuntimeError("Fresh installed launcher returned unexpected project state")
         created = _api_json(
-            f"{url}api/projects",
+            f"{url}{API_PREFIX}/projects",
             token,
             method="POST",
             body={"name": "Package smoke project"},
@@ -162,7 +163,7 @@ def _smoke_launcher(environment: Path, data_root: Path) -> None:
 
     restarted, restarted_token, restarted_url = _start_launcher(executable, data_root)
     try:
-        projects = _api_json(f"{restarted_url}api/projects", restarted_token)
+        projects = _api_json(f"{restarted_url}{API_PREFIX}/projects", restarted_token)
         if projects.get("count") != 1:
             raise RuntimeError("Project state did not survive an installed-launcher restart")
     finally:

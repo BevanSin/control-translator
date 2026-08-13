@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import socket
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +13,7 @@ from control_translator.api.app import create_app  # noqa: E402
 from control_translator.projects import ProjectStore  # noqa: E402
 from control_translator.runs import ProjectRunConflictError  # noqa: E402
 from control_translator.runs.lock import DataRootInstanceLock  # noqa: E402
-from control_translator.web import reserve_loopback_port, validate_data_root  # noqa: E402
+from control_translator.web import main, reserve_loopback_port, validate_data_root  # noqa: E402
 
 
 def test_dashboard_assets_are_served_from_the_same_loopback_app(tmp_path):
@@ -77,3 +78,17 @@ def test_data_root_instance_lock_reclaims_a_stale_launcher(tmp_path):
         lock.release()
 
     assert not lock_path.exists()
+
+
+def test_launcher_treats_operator_interrupt_as_clean_shutdown(tmp_path, monkeypatch):
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    (assets / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        ["ct-web", "--no-browser", "--data-root", str(tmp_path / "project-data")],
+    )
+    monkeypatch.setattr("control_translator.web.packaged_assets", lambda: assets)
+
+    with patch("uvicorn.Server.run", side_effect=KeyboardInterrupt):
+        main()
