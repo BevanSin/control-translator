@@ -665,7 +665,7 @@ describe('project dashboard', () => {
 })
 
 async function goToPage(user: ReturnType<typeof userEvent.setup>, page: string) {
-  await user.click(screen.getByRole('button', { name: page, exact: true }))
+  await user.click(screen.getByRole('button', { name: page }))
 }
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
