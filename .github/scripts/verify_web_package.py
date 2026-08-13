@@ -32,6 +32,10 @@ def _assert_assets(names: list[str], artifact: Path) -> None:
         for name in normalized
     ):
         raise RuntimeError(f"{artifact.name} does not contain a dashboard JavaScript bundle")
+    if not any(name.endswith("control_translator/catalogue_assets/azure-builtins.json") for name in normalized):
+        raise RuntimeError(f"{artifact.name} does not contain the bundled Azure policy catalogue")
+    if not any(name.endswith("control_translator/catalogue_assets/LICENSE.azure-policy") for name in normalized):
+        raise RuntimeError(f"{artifact.name} does not contain the Azure Policy licence")
 
 
 def _inspect_distributions(dist_dir: Path) -> tuple[Path, Path]:
@@ -184,14 +188,22 @@ def main() -> None:
         sdist_environment = root / "sdist-venv"
         _install(wheel, wheel_environment)
         _install(sdist, sdist_environment)
-        subprocess.run(
-            [
-                str(_venv_python(sdist_environment)),
-                "-c",
-                "from control_translator.web import packaged_assets; assert packaged_assets().joinpath('index.html').is_file()",
-            ],
-            check=True,
-        )
+        for environment in (wheel_environment, sdist_environment):
+            subprocess.run(
+                [
+                    str(_venv_python(environment)),
+                    "-c",
+                    (
+                        "from control_translator.web import packaged_assets;"
+                        "from control_translator.catalogue.snapshot import BundledPolicyCatalogue;"
+                        "assert packaged_assets().joinpath('index.html').is_file();"
+                        "catalogue=BundledPolicyCatalogue();"
+                        "assert len(catalogue.builtins()) > 2000;"
+                        "assert catalogue.metadata is not None"
+                    ),
+                ],
+                check=True,
+            )
         _smoke_launcher(wheel_environment, root / "project-data")
 
 

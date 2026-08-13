@@ -29,6 +29,8 @@ def test_package_inspection_accepts_wheel_and_sdist_asset_paths():
         [
             "control_translator/web_assets/index.html",
             "control_translator/web_assets/assets/index-abc123.js",
+            "control_translator/catalogue_assets/azure-builtins.json",
+            "control_translator/catalogue_assets/LICENSE.azure-policy",
         ],
         Path("control_translator.whl"),
     )
@@ -36,6 +38,8 @@ def test_package_inspection_accepts_wheel_and_sdist_asset_paths():
         [
             "control_translator-0.1.0/src/control_translator/web_assets/index.html",
             "control_translator-0.1.0/src/control_translator/web_assets/assets/index-abc123.js",
+            "control_translator-0.1.0/src/control_translator/catalogue_assets/azure-builtins.json",
+            "control_translator-0.1.0/src/control_translator/catalogue_assets/LICENSE.azure-policy",
         ],
         Path("control_translator.tar.gz"),
     )

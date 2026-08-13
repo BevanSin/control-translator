@@ -233,6 +233,15 @@ are the authoritative human decisions and receive the highest backup priority.
   telemetry, URLs, or persistent browser storage. The dashboard keeps reviewer
   content in React state only and sends mutations in authenticated request
   bodies.
+- **Bundled catalogue trust:** releases include a normalized Azure built-in
+  policy snapshot generated from a recorded commit of the MIT-licensed
+  `Azure/azure-policy` repository. The loader requires the trusted repository
+  identity, a full source commit, ISO generation date, matching policy count,
+  canonical SHA-256 digest, and valid ARM policy-definition UUIDs. Invalid or
+  modified snapshots fail closed. The snapshot is immutable package content,
+  never written over user-managed `data/`, and is selected explicitly with
+  `catalogue.type: bundled`; live ARM and caller-supplied offline catalogues do
+  not silently fall back to it.
 - **Deletion:** `ProjectStore.delete` accepts only a validated existing project
   UUID and removes that one workspace. Deletion is permanent; authorize it at
   the future transport layer and back up retained records first.

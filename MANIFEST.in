@@ -1,5 +1,6 @@
 include build_support.py
 recursive-include frontend *
 recursive-include src/control_translator/web_assets *
+recursive-include src/control_translator/catalogue_assets *
 prune frontend/node_modules
 prune frontend/dist
