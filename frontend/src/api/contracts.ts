@@ -104,3 +104,74 @@ export interface IngestSourceResponse {
   sha256: string
   project_path: string
 }
+
+export interface MappingReviewItem {
+  control_id: string
+  decision: 'include' | 'ignore' | 'review'
+  confidence: number
+  source?: string
+  rationale: string
+  policies: Array<{ id: string; name: string }>
+}
+
+export interface ReviewResponse {
+  count: number
+  total?: number | null
+  page?: number | null
+  page_size?: number | null
+  items: MappingReviewItem[]
+}
+
+export interface MappingMutationResponse {
+  updated: string[]
+  already_updated: string[]
+  not_found: string[]
+}
+
+export interface GuidanceItem {
+  id: string
+  control_id: string
+  policy_id: string
+  display_name?: string
+  include_reasoning: string
+  source: string
+  provenance: string
+  updated_at?: string
+}
+
+export interface GuidanceResponse {
+  count?: number | null
+  items?: GuidanceItem[]
+  guidance?: GuidanceItem | null
+  deleted?: string[]
+  affects_future_runs: boolean
+}
+
+export interface GuidanceRequest {
+  id?: string | null
+  control_id: string
+  policy_id: string
+  display_name?: string
+  guidance: string
+  source: string
+  provenance: string
+}
+
+export interface ArtifactInventoryItem {
+  name: string
+  size_bytes: number
+  content_type: string
+  previewable: boolean
+}
+
+export interface ArtifactInventoryResponse {
+  count: number
+  items: ArtifactInventoryItem[]
+}
+
+export interface ArtifactPreviewResponse {
+  name: string
+  content_type: string
+  text: string
+  truncated: boolean
+}

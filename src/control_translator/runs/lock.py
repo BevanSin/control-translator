@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from uuid import uuid4
 
@@ -89,19 +90,20 @@ else:
         return True
 
 
-class ProjectMutationLock:
-    """Acquire/release the single mutation lock for one project's workspace."""
+class _MutationLock:
+    """Ownership-safe lock backed by one canonical lock file."""
 
-    def __init__(self, project_store: ProjectStore, project_id: str):
-        self._project_store = project_store
-        self.project_id = project_id
+    def __init__(self, lock_path: Path, conflict_label: str):
+        self._path = lock_path
+        self._conflict_label = conflict_label
         self._token: str | None = None
 
     def _lock_path(self) -> Path:
-        return self._project_store.resolve_path(self.project_id, _LOCK_RELATIVE_PATH)
+        return self._path
 
     def acquire(self, run_id: str) -> None:
         path = self._lock_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
         token = uuid4().hex
         payload = json.dumps(
             {"pid": os.getpid(), "run_id": run_id, "lock_token": token}).encode("utf-8")
@@ -119,7 +121,7 @@ class ProjectMutationLock:
                 self._token = token
                 return
         raise ProjectRunConflictError(
-            f"Project {self.project_id} already has a run in progress.")
+            f"{self._conflict_label} already has a mutation in progress.")
 
     def _read(self, path: Path) -> dict | None:
         try:
@@ -137,7 +139,7 @@ class ProjectMutationLock:
         pid = holder.get("pid")
         if isinstance(pid, int) and not isinstance(pid, bool) and _pid_alive(pid):
             raise ProjectRunConflictError(
-                f"Project {self.project_id} already has run {holder.get('run_id', '?')} "
+                f"{self._conflict_label} already has mutation {holder.get('run_id', '?')} "
                 "in progress.")
         # The recorded holder process is gone — the lock is stale from a crash.
         # Re-read immediately before deleting and only remove the file if its
@@ -158,3 +160,36 @@ class ProjectMutationLock:
             return
         self._remove_if_matches(self._lock_path(), self._token)
         self._token = None
+
+
+class ProjectMutationLock(_MutationLock):
+    """Acquire/release the single mutation lock for one project's workspace."""
+
+    def __init__(self, project_store: ProjectStore, project_id: str):
+        self.project_id = project_id
+        super().__init__(
+            project_store.resolve_path(project_id, _LOCK_RELATIVE_PATH),
+            f"Project {project_id}",
+        )
+
+
+class ResourceMutationLock(_MutationLock):
+    """Serialize mutations to a shared file across projects and processes."""
+
+    def __init__(self, resource_path: str | Path):
+        canonical = Path(resource_path).resolve()
+        super().__init__(
+            canonical.with_name(f".{canonical.name}.mutation-lock.json"),
+            f"Resource {canonical.name}",
+        )
+
+    def acquire(self, run_id: str, *, wait: bool = False, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                super().acquire(run_id)
+                return
+            except ProjectRunConflictError:
+                if not wait or time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)

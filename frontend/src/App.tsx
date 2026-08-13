@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { ApiClient, ApiClientError } from './api/client'
-import type { IngestSourceResponse, PipelineEvent, Project, ProjectStatus, RunRecord } from './api/contracts'
+import type {
+  ArtifactInventoryItem,
+  ArtifactPreviewResponse,
+  GuidanceItem,
+  IngestSourceResponse,
+  MappingReviewItem,
+  PipelineEvent,
+  Project,
+  ProjectStatus,
+  RunRecord,
+} from './api/contracts'
 import { useTheme } from './theme/useTheme'
 import './App.css'
 
@@ -10,6 +20,7 @@ const DEFAULT_CONFIG_PATH = 'config/nzism-azure.json'
 const POLL_INTERVAL_MS = 750
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
 const BASE64_CHUNK_SIZE = 0x8000
+const REVIEW_PAGE_SIZE = 10
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type SourceMode = 'upload' | 'url'
@@ -40,8 +51,22 @@ function App() {
   const [isPollingRun, setIsPollingRun] = useState(false)
   const [isRunActionPending, setIsRunActionPending] = useState(false)
   const [pollMessage, setPollMessage] = useState('')
+  const [reviewItems, setReviewItems] = useState<MappingReviewItem[]>([])
+  const [reviewQuery, setReviewQuery] = useState('')
+  const [reviewStatus, setReviewStatus] = useState('review')
+  const [reviewPage, setReviewPage] = useState(1)
+  const [reviewTotal, setReviewTotal] = useState(0)
+  const [selectedControls, setSelectedControls] = useState<Set<string>>(new Set())
+  const [guidanceItems, setGuidanceItems] = useState<GuidanceItem[]>([])
+  const [guidanceAffectsRuns, setGuidanceAffectsRuns] = useState(false)
+  const [guidanceForm, setGuidanceForm] = useState({ control_id: '', policy_id: '', display_name: '', guidance: '', source: 'human-review', provenance: '' })
+  const [artifacts, setArtifacts] = useState<ArtifactInventoryItem[]>([])
+  const [artifactPreview, setArtifactPreview] = useState<ArtifactPreviewResponse | null>(null)
   const projectsRequestVersion = useRef(0)
   const openProjectRequestVersion = useRef(0)
+  const projectDataVersion = useRef(0)
+  const reviewRequestVersion = useRef(0)
+  const artifactPreviewRequestVersion = useRef(0)
   const runRequestVersion = useRef(0)
   const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
@@ -61,6 +86,7 @@ function App() {
   const isProjectsBusy = loadState === 'loading' || isMutating || isRunActionPending || projectLocked
   const selectedRunId = selectedRun?.id
   const selectedRunIsTerminal = selectedRun ? isTerminalRun(selectedRun) : false
+  const reviewPageCount = Math.max(1, Math.ceil(reviewTotal / REVIEW_PAGE_SIZE))
 
   const loadProjects = useCallback(async (): Promise<boolean> => {
     const requestVersion = ++projectsRequestVersion.current
@@ -112,6 +138,7 @@ function App() {
     projectsRequestVersion.current += 1
     openProjectRequestVersion.current += 1
     runRequestVersion.current += 1
+    resetProjectScopedData()
     setIsConnected(false)
     setSessionToken('')
     setProjects([])
@@ -119,6 +146,7 @@ function App() {
     setIsMutating(false)
     setMessage('')
     setStatus(null)
+    activeProjectIdRef.current = null
     setActiveProject(null)
     setRunHistory([])
     setSelectedRun(null)
@@ -155,9 +183,11 @@ function App() {
   async function openProject(project: Project) {
     const requestVersion = ++openProjectRequestVersion.current
     runRequestVersion.current += 1
+    resetProjectScopedData()
     setMessage('')
     setPollMessage('')
     setStatus(null)
+    activeProjectIdRef.current = null
     setActiveProject(null)
     setRunHistory([])
     setSelectedRun(null)
@@ -171,6 +201,7 @@ function App() {
         return
       }
       setStatus(projectStatus)
+      activeProjectIdRef.current = project.id
       setActiveProject(project)
       setRunHistory(runs)
       setSelectedRun(runs.at(0) ?? null)
@@ -184,6 +215,203 @@ function App() {
       if (requestVersion === openProjectRequestVersion.current) {
         setMessage(safeMessage(error))
       }
+    }
+  }
+
+  async function refreshReviewData(project = activeProject, page = reviewPage) {
+        if (!project) {
+          return
+        }
+        const requestVersion = ++reviewRequestVersion.current
+        const dataVersion = projectDataVersion.current
+        const requestedConfigPath = toOptionalPath(configPath)
+        const requestedQuery = reviewQuery
+        const requestedStatus = reviewStatus
+        try {
+          const [review, guidance, artifactInventory] = await Promise.all([
+            client.reviewMappings(project.id, requestedConfigPath, requestedQuery, requestedStatus, page, REVIEW_PAGE_SIZE),
+            client.listGuidance(project.id, requestedConfigPath),
+            client.artifactInventory(project.id, requestedConfigPath).catch(() => ({ count: 0, items: [] })),
+          ])
+          if (
+            requestVersion !== reviewRequestVersion.current
+            || dataVersion !== projectDataVersion.current
+            || activeProjectIdRef.current !== project.id
+          ) {
+            return
+          }
+          setReviewItems(Array.isArray(review.items) ? review.items : [])
+          setReviewPage(review.page ?? page)
+          setReviewTotal(review.total ?? review.count)
+          setGuidanceItems(Array.isArray(guidance.items) ? guidance.items : [])
+          setGuidanceAffectsRuns(guidance.affects_future_runs)
+          setArtifacts(artifactInventory.items)
+          setSelectedControls(new Set())
+        } catch (error) {
+          if (requestVersion === reviewRequestVersion.current && dataVersion === projectDataVersion.current) {
+            setMessage(safeMessage(error))
+          }
+        }
+  }
+
+  function toggleControl(controlId: string) {
+        setSelectedControls((current) => {
+          const next = new Set(current)
+          if (next.has(controlId)) {
+            next.delete(controlId)
+          } else {
+            next.add(controlId)
+          }
+          return next
+        })
+  }
+
+  async function mutateSelectedMappings(action: 'approve' | 'reject') {
+        if (!activeProject || projectLocked || selectedControls.size === 0) {
+          return
+        }
+        const project = activeProject
+        const dataVersion = projectDataVersion.current
+        const selectedIds = [...selectedControls]
+        const visibleIds = new Set(reviewItems.map((item) => item.control_id))
+        if (selectedIds.some((controlId) => !visibleIds.has(controlId))) {
+          setSelectedControls(new Set())
+          setMessage('Selection was reset because the review results changed. Select mappings again before mutating.')
+          return
+        }
+        const verb = action === 'approve' ? 'approve' : 'reject'
+        if (!window.confirm(`Confirm bulk ${verb} for ${selectedIds.length} selected mapping${selectedIds.length === 1 ? '' : 's'}?`)) {
+          return
+        }
+        setIsMutating(true)
+        try {
+          const result = await client.mutateMappings(project.id, toOptionalPath(configPath), action, selectedIds)
+          if (dataVersion !== projectDataVersion.current || activeProjectIdRef.current !== project.id) {
+            return
+          }
+          setMessage(`${result.updated.length} updated, ${result.already_updated.length} already current, ${result.not_found.length} conflicted or missing.`)
+          setSelectedControls(new Set())
+          await refreshReviewData(project)
+        } catch (error) {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setMessage(safeMessage(error))
+          }
+        } finally {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setIsMutating(false)
+          }
+        }
+  }
+
+  async function submitGuidance(event: FormEvent<HTMLFormElement>) {
+        event.preventDefault()
+        if (!activeProject || projectLocked) {
+          return
+        }
+        const project = activeProject
+        const dataVersion = projectDataVersion.current
+        setIsMutating(true)
+        try {
+          const result = await client.saveGuidance(project.id, toOptionalPath(configPath), guidanceForm)
+          if (dataVersion !== projectDataVersion.current || activeProjectIdRef.current !== project.id) {
+            return
+          }
+          setGuidanceItems((current) => [result.guidance!, ...current.filter((item) => item.id !== result.guidance?.id)])
+          setGuidanceAffectsRuns(result.affects_future_runs)
+          setGuidanceForm({ control_id: '', policy_id: '', display_name: '', guidance: '', source: 'human-review', provenance: '' })
+          setMessage(result.affects_future_runs ? 'Guidance saved. It affects future mapping runs, not the already-built artifacts.' : 'Guidance saved locally.')
+        } catch (error) {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setMessage(safeMessage(error))
+          }
+        } finally {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setIsMutating(false)
+          }
+        }
+  }
+
+  async function deleteGuidance(id: string) {
+        if (!activeProject || projectLocked || !window.confirm('Delete this local guidance entry? Future runs will stop using it.')) {
+          return
+        }
+        const project = activeProject
+        const dataVersion = projectDataVersion.current
+        setIsMutating(true)
+        try {
+          const result = await client.deleteGuidance(project.id, toOptionalPath(configPath), [id])
+          if (dataVersion !== projectDataVersion.current || activeProjectIdRef.current !== project.id) {
+            return
+          }
+          setGuidanceItems((current) => current.filter((item) => !result.deleted?.includes(item.id)))
+          setMessage('Guidance deleted.')
+        } catch (error) {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setMessage(safeMessage(error))
+          }
+        } finally {
+          if (dataVersion === projectDataVersion.current && activeProjectIdRef.current === project.id) {
+            setIsMutating(false)
+          }
+        }
+  }
+
+  async function addFirstPolicyToOos(item: MappingReviewItem) {
+        const policy = item.policies[0]
+        if (!activeProject || !policy || projectLocked || !window.confirm(`Add ${policy.name || policy.id} to the OOS register?`)) {
+          return
+        }
+        setIsMutating(true)
+        try {
+          const result = await client.addToOos(activeProject.id, toOptionalPath(configPath), [policy.id], [`OOS candidate from review of ${item.control_id}`])
+          setMessage(`Added ${result.added.length} policy to the OOS register. Re-run the pipeline for artifacts to reflect it.`)
+        } catch (error) {
+          setMessage(safeMessage(error))
+        } finally {
+          setIsMutating(false)
+        }
+  }
+
+  async function previewArtifact(name: string) {
+        if (!activeProject) {
+          return
+        }
+        const project = activeProject
+        const requestVersion = ++artifactPreviewRequestVersion.current
+        const dataVersion = projectDataVersion.current
+        try {
+          const preview = await client.artifactPreview(project.id, toOptionalPath(configPath), name)
+          if (
+            requestVersion !== artifactPreviewRequestVersion.current
+            || dataVersion !== projectDataVersion.current
+            || activeProjectIdRef.current !== project.id
+          ) {
+            return
+          }
+          setArtifactPreview(preview)
+        } catch (error) {
+          if (requestVersion === artifactPreviewRequestVersion.current && dataVersion === projectDataVersion.current) {
+            setMessage(safeMessage(error))
+          }
+        }
+  }
+
+  async function downloadArtifact(name: string) {
+        if (!activeProject) {
+          return
+        }
+        try {
+          const blob = await client.downloadArtifact(activeProject.id, toOptionalPath(configPath), name)
+          const url = URL.createObjectURL(blob)
+          const anchor = document.createElement('a')
+          anchor.href = url
+          anchor.download = name
+          anchor.rel = 'noopener'
+          anchor.click()
+          URL.revokeObjectURL(url)
+          setMessage(`Downloaded ${name}.`)
+        } catch (error) {
+          setMessage(safeMessage(error))
     }
   }
 
@@ -201,7 +429,9 @@ function App() {
       }
       setProjects((current) => current.filter((project) => project.id !== deleteTarget.id))
       if (status?.project_id === deleteTarget.id) {
+        resetProjectScopedData()
         setStatus(null)
+        activeProjectIdRef.current = null
         setActiveProject(null)
         setRunHistory([])
         setSelectedRun(null)
@@ -349,6 +579,23 @@ function App() {
     setDroppedEventCount(0)
   }
 
+  function resetProjectScopedData() {
+    projectDataVersion.current += 1
+    reviewRequestVersion.current += 1
+    artifactPreviewRequestVersion.current += 1
+    setIsMutating(false)
+    setReviewItems([])
+    setReviewPage(1)
+    setReviewTotal(0)
+    setSelectedControls(new Set())
+    setGuidanceItems([])
+    setGuidanceAffectsRuns(false)
+    setGuidanceForm({ control_id: '', policy_id: '', display_name: '', guidance: '', source: 'human-review', provenance: '' })
+    setArtifacts([])
+    setArtifactPreview(null)
+    setSourceResult(null)
+  }
+
   useEffect(() => {
     if (!activeProject || !selectedRunId) {
       setIsPollingRun(false)
@@ -448,6 +695,9 @@ function App() {
         <a href="#create-project">Create</a>
         <a href="#source-setup">Source</a>
         <a href="#runs">Runs</a>
+        <a href="#mapping-review">Review</a>
+        <a href="#guidance">Guidance</a>
+        <a href="#artifacts">Artifacts</a>
         <a href="#project-status">Status</a>
         </nav>
 
@@ -629,13 +879,133 @@ function App() {
                     </>
                   ) : <StateCard title="Open a project first" text="Run controls appear after a project is opened with a safe config path." />}
                 </section>
+
+                <section id="mapping-review" className="panel" aria-labelledby="review-heading">
+                  <div className="section-heading">
+                    <h2 id="review-heading">Mapping review</h2>
+                    <span className="badge">{reviewItems.length} shown</span>
+                  </div>
+                  {activeProject ? (
+                    <>
+                      <form className="filter-row" onSubmit={(event) => { event.preventDefault(); setReviewPage(1); void refreshReviewData(activeProject, 1) }}>
+                        <label>
+                          <span>Search mappings</span>
+                          <input value={reviewQuery} onChange={(event) => { setReviewQuery(event.target.value); setReviewPage(1) }} maxLength={200} />
+                        </label>
+                        <label>
+                          <span>Status</span>
+                          <select value={reviewStatus} onChange={(event) => { setReviewStatus(event.target.value); setReviewPage(1) }}>
+                            <option value="review">Pending review</option>
+                            <option value="include">Approved</option>
+                            <option value="ignore">Rejected</option>
+                            <option value="">All</option>
+                          </select>
+                        </label>
+                        <button type="submit">Refresh review</button>
+                      </form>
+                      <div className="card-actions left-actions">
+                        <button type="button" onClick={() => mutateSelectedMappings('approve')} disabled={projectLocked || isMutating || selectedControls.size === 0}>Approve selected</button>
+                        <button type="button" className="danger" onClick={() => mutateSelectedMappings('reject')} disabled={projectLocked || isMutating || selectedControls.size === 0}>Reject selected</button>
+                      </div>
+                      <nav className="pagination-row" aria-label="Mapping review pages">
+                        <button type="button" className="secondary" onClick={() => { const page = Math.max(1, reviewPage - 1); setReviewPage(page); void refreshReviewData(activeProject, page) }} disabled={isMutating || reviewPage <= 1}>Previous page</button>
+                        <span aria-live="polite">Page {reviewPage} of {reviewPageCount}; {reviewTotal} mapping{reviewTotal === 1 ? '' : 's'} total</span>
+                        <button type="button" className="secondary" onClick={() => { const page = Math.min(reviewPageCount, reviewPage + 1); setReviewPage(page); void refreshReviewData(activeProject, page) }} disabled={isMutating || reviewPage >= reviewPageCount}>Next page</button>
+                      </nav>
+                      <ul className="review-list" aria-label="Mapping review results">
+                        {reviewItems.map((item) => (
+                          <li key={item.control_id}>
+                            <article className="review-card">
+                              <label className="check-row">
+                                <input type="checkbox" checked={selectedControls.has(item.control_id)} onChange={() => toggleControl(item.control_id)} disabled={projectLocked || isMutating} />
+                                <span><strong>{item.control_id}</strong> <span className={`state-pill ${item.decision}`}>{item.decision}</span></span>
+                              </label>
+                              <p>Confidence {(item.confidence * 100).toFixed(0)}%. {item.rationale}</p>
+                              <ul>
+                                {item.policies.map((policy) => <li key={policy.id}>{policy.name || policy.id}</li>)}
+                              </ul>
+                              <button type="button" className="secondary" onClick={() => addFirstPolicyToOos(item)} disabled={projectLocked || isMutating || item.policies.length === 0}>Promote first policy to OOS candidate</button>
+                            </article>
+                          </li>
+                        ))}
+                      </ul>
+                      {reviewItems.length === 0 ? <StateCard title="No mappings match" text="Refresh after a run or change the filters." /> : null}
+                    </>
+                  ) : <StateCard title="Open a project first" text="Mapping review loads after a project is opened." />}
+                </section>
+
+                <section id="guidance" className="panel" aria-labelledby="guidance-heading">
+                  <div className="section-heading">
+                    <h2 id="guidance-heading">Local guidance</h2>
+                    <span className="badge">{guidanceAffectsRuns ? 'Affects future runs' : 'Stored locally'}</span>
+                  </div>
+                  {activeProject ? (
+                    <>
+                      <p className="lock-text">Guidance is project-local calibration for future mapping runs; it does not rewrite current decisions or artifacts.</p>
+                      <form className="form-grid" onSubmit={submitGuidance}>
+                        <label><span>Control ID</span><input value={guidanceForm.control_id} onChange={(event) => setGuidanceForm({ ...guidanceForm, control_id: event.target.value })} required disabled={projectLocked || isMutating} /></label>
+                        <label><span>Policy ID</span><input value={guidanceForm.policy_id} onChange={(event) => setGuidanceForm({ ...guidanceForm, policy_id: event.target.value })} required disabled={projectLocked || isMutating} /></label>
+                        <label><span>Policy display name</span><input value={guidanceForm.display_name} onChange={(event) => setGuidanceForm({ ...guidanceForm, display_name: event.target.value })} disabled={projectLocked || isMutating} /></label>
+                        <label><span>Source/provenance</span><input value={guidanceForm.provenance} onChange={(event) => setGuidanceForm({ ...guidanceForm, provenance: event.target.value })} placeholder="review meeting, ticket, authority note" required disabled={projectLocked || isMutating} /></label>
+                        <label><span>Guidance rationale</span><textarea value={guidanceForm.guidance} onChange={(event) => setGuidanceForm({ ...guidanceForm, guidance: event.target.value })} maxLength={2000} required disabled={projectLocked || isMutating} /></label>
+                        <button type="submit" disabled={projectLocked || isMutating}>Save guidance</button>
+                      </form>
+                      <ul className="review-list" aria-label="Local guidance entries">
+                        {guidanceItems.map((item) => (
+                          <li key={item.id}>
+                            <article className="review-card">
+                              <h3>{item.control_id} → {item.display_name || item.policy_id}</h3>
+                              <p>{item.include_reasoning}</p>
+                              <p className="lock-text">Source: {item.source}; provenance: {item.provenance}</p>
+                              <button type="button" className="danger" onClick={() => deleteGuidance(item.id)} disabled={projectLocked || isMutating}>Delete guidance</button>
+                            </article>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : <StateCard title="Open a project first" text="Guidance is isolated to the active project workspace." />}
+                </section>
+
+                <section id="artifacts" className="panel" aria-labelledby="artifacts-heading">
+                  <div className="section-heading">
+                    <h2 id="artifacts-heading">Generated artifacts</h2>
+                    <span className="badge">{artifacts.length} available</span>
+                  </div>
+                  {activeProject ? (
+                    <>
+                      <button type="button" className="secondary" onClick={() => refreshReviewData()} disabled={isMutating}>Refresh artifact inventory</button>
+                      <ul className="review-list" aria-label="Generated artifact inventory">
+                        {artifacts.map((artifact) => (
+                          <li key={artifact.name}>
+                            <article className="review-card">
+                              <h3>{artifact.name}</h3>
+                              <p>{artifact.content_type}; {artifact.size_bytes.toLocaleString()} bytes</p>
+                              <div className="card-actions left-actions">
+                                <button type="button" onClick={() => previewArtifact(artifact.name)} disabled={!artifact.previewable}>Preview</button>
+                                <button type="button" className="secondary" onClick={() => downloadArtifact(artifact.name)}>Download</button>
+                              </div>
+                            </article>
+                          </li>
+                        ))}
+                      </ul>
+                      {artifactPreview ? (
+                        <article className="artifact-preview" aria-live="polite">
+                          <h3>Preview: {artifactPreview.name}</h3>
+                          {artifactPreview.truncated ? <p className="lock-text">Preview truncated to the safe bounded limit.</p> : null}
+                          <pre>{artifactPreview.text}</pre>
+                        </article>
+                      ) : null}
+                      {artifacts.length === 0 ? <StateCard title="No artifacts yet" text="Run the pipeline with distribution enabled to generate allow-listed Azure Policy files." /> : null}
+                    </>
+                  ) : <StateCard title="Open a project first" text="Artifacts are scoped to the opened project and exposed only by allow-listed names." />}
+                </section>
               </div>
 
               <aside id="project-status" className="panel status-panel" aria-labelledby="status-heading">
                 <h2 id="status-heading">Open project</h2>
                 <label>
                   <span>Configuration path for open/status</span>
-                  <input value={configPath} onChange={(event) => setConfigPath(event.target.value)} maxLength={4096} disabled={projectLocked} />
+                  <input value={configPath} onChange={(event) => { setConfigPath(event.target.value); setReviewPage(1) }} maxLength={4096} disabled={projectLocked} />
                 </label>
                 {status ? (
                   <dl className="status-list">

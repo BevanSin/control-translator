@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from datetime import datetime, timezone
 
 import pytest
@@ -19,6 +21,7 @@ from control_translator.runs.store import RunStore
 
 
 def _write_config(tmp_path, mapping_store: str) -> str:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     config = {
         "framework": {"id": "demo", "version": "1"},
         "ingest": {"type": "fixture", "source": "data/source/NZISM-mini.csv"},
@@ -201,3 +204,103 @@ def test_mutations_are_rejected_while_project_run_lock_is_held(tmp_path):
             )
     finally:
         lock.release()
+
+
+def test_guidance_crud_is_project_local_and_affects_future_runs(tmp_path):
+    store_path = tmp_path / "mapping.json"
+    _write_mapping(str(store_path))
+    config_path = _write_config(tmp_path, str(store_path))
+    service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+
+    created = service.save_guidance(
+        guidance_id=None,
+        control_id="C-1",
+        policy_id="p1",
+        display_name="Policy 1",
+        guidance="Reviewer-confirmed relevance for similar controls.",
+        source="human-review",
+        provenance="issue-26-test",
+        config_path=config_path,
+        resolution_root=tmp_path,
+    )
+
+    assert created.affects_future_runs is True
+    guidance_id = created.guidance["id"]
+    listed = service.list_guidance(config_path=config_path, resolution_root=tmp_path)
+    assert listed["count"] == 1
+    assert listed["items"][0]["include_reasoning"].startswith("Reviewer-confirmed")
+
+    deleted = service.delete_guidance(
+        guidance_ids=[guidance_id], config_path=config_path, resolution_root=tmp_path
+    )
+    assert deleted.deleted == [guidance_id]
+    assert service.list_guidance(config_path=config_path, resolution_root=tmp_path)["count"] == 0
+
+
+def test_shared_mutable_file_updates_are_serialized_across_projects(tmp_path, monkeypatch):
+    store_path = tmp_path / "mapping.json"
+    _write_mapping(str(store_path))
+    config_a = _write_config(tmp_path / "a", str(store_path))
+    config_b = _write_config(tmp_path / "b", str(store_path))
+    shared_oos_path = tmp_path / "data" / "mappings" / "global-ignore.json"
+    service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+    service.status(config_path=config_a, resolution_root=tmp_path)
+    service.status(config_path=config_b, resolution_root=tmp_path)
+    slow_first_write = threading.Event()
+    original_sanitize = service._sanitize_text
+
+    def slow_sanitize(text: str) -> str:
+        if not slow_first_write.is_set():
+            slow_first_write.set()
+            time.sleep(0.2)
+        return original_sanitize(text)
+
+    monkeypatch.setattr(service, "_sanitize_text", slow_sanitize)
+    start = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def mutate(config_path: str, policy_id: str) -> None:
+        try:
+            start.wait()
+            service.add_to_oos_register(
+                policy_ids=[policy_id],
+                reasons=[f"exclude {policy_id}"],
+                register="global",
+                config_path=config_path,
+                resolution_root=tmp_path,
+            )
+        except BaseException as exc:  # pragma: no cover - surfaced by assertion below
+            errors.append(exc)
+
+    threads = [
+        threading.Thread(target=mutate, args=(config_a, "policy-a")),
+        threading.Thread(target=mutate, args=(config_b, "policy-b")),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert errors == []
+    records = json.loads(shared_oos_path.read_text(encoding="utf-8"))
+    assert {record["policy_id"] for record in records} == {"policy-a", "policy-b"}
+
+
+def test_mapping_list_filters_and_paginates_without_leaking_sensitive_rationale(tmp_path):
+    store_path = tmp_path / "mapping.json"
+    _write_mapping(str(store_path))
+    config_path = _write_config(tmp_path, str(store_path))
+    service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+
+    page = service.list_mappings(
+        query="policy",
+        status="review",
+        page=1,
+        page_size=1,
+        config_path=config_path,
+        resolution_root=tmp_path,
+    )
+
+    assert page["total"] == 1
+    assert page["items"][0]["control_id"] == "C-1"
+    assert page["items"][0]["rationale"] == "[redacted]"

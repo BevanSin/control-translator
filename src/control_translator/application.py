@@ -1,8 +1,9 @@
 """Shared application services for CLI, MCP, and future API adapters."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from .catalogue import get_catalogue
 from .config import load_config, resolve
 from .events import EventType, PipelineEvent, Stage
 from .mapping import MappingStore, check_oos_staleness, load_oos_records
+from .mapping.corrections import load_corrections
 from .models.mapping import Decision
 from .projects import (
     IngestedSource,
@@ -29,17 +31,17 @@ from .projects import (
     UnsupportedSourceError,
 )
 from .runs import PipelineService, ProjectRunConflictError, RunRecord, RunState
-from .runs.lock import ProjectMutationLock
+from .runs.lock import ProjectMutationLock, ResourceMutationLock
 
 _MAX_RATIONALE_CHARS = 200
+_MAX_GUIDANCE_CHARS = 2000
+_MAX_ARTIFACT_PREVIEW_BYTES = 128 * 1024
 _RUN_WAIT_TIMEOUT_SECONDS = 300
 _SENSITIVE_TEXT = re.compile(
     r"(key|token|secret|password|passwd|credential|connection[_-]?string|"
     r"signature|authorization|api[_-]?key|https?://)",
     re.IGNORECASE,
 )
-
-
 @dataclass(frozen=True)
 class RunSummary:
     framework: str
@@ -73,9 +75,37 @@ class MappingMutationResult:
 
 
 @dataclass(frozen=True)
+class GuidanceMutationResult:
+    guidance: dict | None
+    deleted: list[str]
+    affects_future_runs: bool
+
+
+@dataclass(frozen=True)
 class OOSMutationResult:
     added: list[str]
     register_path: str
+
+
+@dataclass(frozen=True)
+class OOSReconsiderationResult:
+    removed: list[str]
+    not_found: list[str]
+
+
+@contextmanager
+def _locked_mutable_paths(paths: list[str] | tuple[str, ...]):
+    resolved = sorted({Path(path).resolve(strict=False) for path in paths}, key=str)
+    locks = [ResourceMutationLock(path) for path in resolved]
+    acquired: list[ResourceMutationLock] = []
+    try:
+        for lock in locks:
+            lock.acquire(run_id=uuid4().hex, wait=True)
+            acquired.append(lock)
+        yield
+    finally:
+        for lock in reversed(acquired):
+            lock.release()
 
 
 class ApplicationServiceError(Exception):
@@ -339,25 +369,26 @@ class ControlTranslatorService:
             raise InvalidIdentifierError("register must be either 'global' or 'framework'.")
 
         lock = ProjectMutationLock(self.project_store, project_id)
+        added: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            existing: list[dict] = []
-            if os.path.exists(selected):
-                with open(selected, encoding="utf-8") as fh:
-                    existing = json.load(fh)
+            with _locked_mutable_paths([selected]):
+                existing: list[dict] = []
+                if os.path.exists(selected):
+                    with open(selected, encoding="utf-8") as fh:
+                        existing = json.load(fh)
 
-            added: list[str] = []
-            for policy_id, reason in zip(policy_ids, reasons):
-                existing.append({
-                    "policy_id": policy_id,
-                    "reason": self._sanitize_text(reason),
-                    "oos_date": date.today().isoformat(),
-                })
-                added.append(policy_id)
+                for policy_id, reason in zip(policy_ids, reasons):
+                    existing.append({
+                        "policy_id": policy_id,
+                        "reason": self._sanitize_text(reason),
+                        "oos_date": date.today().isoformat(),
+                    })
+                    added.append(policy_id)
 
-            os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
-            with open(selected, "w", encoding="utf-8") as fh:
-                json.dump(existing, fh, indent=2, ensure_ascii=False)
+                os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
+                with open(selected, "w", encoding="utf-8") as fh:
+                    json.dump(existing, fh, indent=2, ensure_ascii=False)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -366,6 +397,157 @@ class ControlTranslatorService:
             lock.release()
 
         return OOSMutationResult(added=added, register_path=selected)
+
+    def remove_from_oos_register(
+        self,
+        *,
+        policy_ids: list[str],
+        config_path: str | None,
+        resolution_root: str | Path,
+    ) -> OOSReconsiderationResult:
+        for policy_id in policy_ids:
+            self._validate_identifier(policy_id)
+
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        paths = self._oos_register_paths(config)
+        lock = ProjectMutationLock(self.project_store, project_id)
+        removed: list[str] = []
+        not_found: list[str] = []
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            with _locked_mutable_paths(paths):
+                wanted = {self._norm_policy_id(policy_id): policy_id for policy_id in policy_ids}
+                for path in paths:
+                    if not os.path.exists(path):
+                        continue
+                    with open(path, encoding="utf-8") as fh:
+                        records = json.load(fh)
+                    if not isinstance(records, list):
+                        continue
+                    kept: list[object] = []
+                    changed = False
+                    for record in records:
+                        raw = record if isinstance(record, str) else record.get("policy_id", "")
+                        norm = self._norm_policy_id(str(raw))
+                        if norm in wanted:
+                            if wanted[norm] not in removed:
+                                removed.append(wanted[norm])
+                            changed = True
+                        else:
+                            kept.append(record)
+                    if changed:
+                        with open(path, "w", encoding="utf-8") as fh:
+                            json.dump(kept, fh, indent=2, ensure_ascii=False)
+                not_found = [policy_id for policy_id in policy_ids if policy_id not in removed]
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
+        finally:
+            lock.release()
+
+        return OOSReconsiderationResult(removed=removed, not_found=not_found)
+
+    def list_guidance(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        path, affects = self._guidance_path(project_id, config)
+        entries = self._load_guidance_entries(path)
+        return {"count": len(entries), "items": entries, "affects_future_runs": affects}
+
+    def save_guidance(
+        self,
+        *,
+        guidance_id: str | None,
+        control_id: str,
+        policy_id: str,
+        display_name: str,
+        guidance: str,
+        source: str,
+        provenance: str,
+        config_path: str | None,
+        resolution_root: str | Path,
+    ) -> GuidanceMutationResult:
+        self._validate_identifier(control_id)
+        self._validate_identifier(policy_id)
+        clean_guidance = guidance.strip()
+        if not clean_guidance or len(clean_guidance) > _MAX_GUIDANCE_CHARS:
+            raise InvalidIdentifierError("guidance must be non-empty and within the configured length limit.")
+        if not source.strip() or not provenance.strip():
+            raise InvalidIdentifierError("source and provenance are required for local guidance.")
+
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        path, affects = self._guidance_path(project_id, config)
+        lock = ProjectMutationLock(self.project_store, project_id)
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            with _locked_mutable_paths([path]):
+                entries = self._load_guidance_entries(path)
+                now = self._timestamp()
+                entry_id = guidance_id.strip() if guidance_id else uuid4().hex
+                entry = {
+                    "id": entry_id,
+                    "control_id": control_id.strip(),
+                    "policy_id": policy_id.strip(),
+                    "display_name": display_name.strip(),
+                    "include_reasoning": clean_guidance,
+                    "source": source.strip(),
+                    "provenance": provenance.strip(),
+                    "added_date": date.today().isoformat(),
+                    "updated_at": now,
+                }
+                replaced = False
+                for index, existing in enumerate(entries):
+                    if existing.get("id") == entry_id:
+                        entry["added_date"] = existing.get("added_date", entry["added_date"])
+                        entries[index] = entry
+                        replaced = True
+                        break
+                if not replaced:
+                    entries.append(entry)
+                self._save_json_list(path, entries)
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
+        finally:
+            lock.release()
+
+        return GuidanceMutationResult(guidance=entry, deleted=[], affects_future_runs=affects)
+
+    def delete_guidance(
+        self,
+        *,
+        guidance_ids: list[str],
+        config_path: str | None,
+        resolution_root: str | Path,
+    ) -> GuidanceMutationResult:
+        for guidance_id in guidance_ids:
+            self._validate_identifier(guidance_id)
+        project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        path, affects = self._guidance_path(project_id, config)
+        lock = ProjectMutationLock(self.project_store, project_id)
+        deleted: list[str] = []
+        try:
+            lock.acquire(run_id=uuid4().hex)
+            with _locked_mutable_paths([path]):
+                entries = self._load_guidance_entries(path)
+                wanted = set(guidance_ids)
+                kept = []
+                for entry in entries:
+                    entry_id = str(entry.get("id", ""))
+                    if entry_id in wanted:
+                        deleted.append(entry_id)
+                    else:
+                        kept.append(entry)
+                if deleted:
+                    self._save_json_list(path, kept)
+        except ProjectRunConflictError as exc:
+            raise PipelineInProgressError(
+                "Project state is currently being updated by an active run. Retry after it completes."
+            ) from exc
+        finally:
+            lock.release()
+        return GuidanceMutationResult(guidance=None, deleted=deleted, affects_future_runs=affects)
 
     def mapping_details(self, *, control_id: str, config_path: str | None,
                         resolution_root: str | Path) -> dict:
@@ -414,6 +596,55 @@ class ControlTranslatorService:
                     break
 
         return {"count": len(results), "results": results}
+
+    def list_mappings(
+        self,
+        *,
+        query: str,
+        status: str | None,
+        page: int,
+        page_size: int,
+        config_path: str | None,
+        resolution_root: str | Path,
+    ) -> dict:
+        q = query.strip().lower()
+        if page < 1 or page_size < 1 or page_size > 100:
+            raise InvalidIdentifierError("page and page_size must be within the supported range.")
+        if status and status not in {"include", "ignore", "review"}:
+            raise InvalidIdentifierError("status must be one of include, ignore, review.")
+
+        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        fw = config["framework"]
+        mapping = MappingStore(config["mapping"]["store"]).load(fw["id"], fw["version"])
+        all_items: list[dict] = []
+        for control_key, item in sorted(mapping.mappings.items()):
+            if status and item.decision.value != status:
+                continue
+            haystack = " ".join(
+                [control_key, item.rationale, item.decision.value]
+                + [policy.policy_id for policy in item.policies]
+                + [policy.display_name for policy in item.policies]
+            ).lower()
+            if q and q not in haystack:
+                continue
+            all_items.append({
+                "control_id": control_key,
+                "decision": item.decision.value,
+                "confidence": item.confidence,
+                "source": item.source,
+                "policies": [{"id": p.policy_id, "name": p.display_name} for p in item.policies],
+                "rationale": self._sanitize_text(item.rationale),
+            })
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        return {
+            "count": len(all_items[start:end]),
+            "total": len(all_items),
+            "page": page,
+            "page_size": page_size,
+            "items": all_items[start:end],
+        }
 
     def status(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
@@ -492,6 +723,51 @@ class ControlTranslatorService:
             summary["parameters"] = len(props.get("parameters", {}))
         return summary
 
+    def artifact_inventory(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
+        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        bundle_dir = self._bundle_dir(config)
+        if bundle_dir is None:
+            return {"count": 0, "items": []}
+        items: list[dict] = []
+        for name, content_type in self._artifact_allow_list().items():
+            path = self._artifact_path(bundle_dir, name)
+            if path and path.exists():
+                items.append({
+                    "name": name,
+                    "size_bytes": path.stat().st_size,
+                    "content_type": content_type,
+                    "previewable": self._is_previewable_artifact(name, path),
+                })
+        return {"count": len(items), "items": items}
+
+    def artifact_preview(self, *, config_path: str | None, resolution_root: str | Path,
+                         name: str) -> dict:
+        path, content_type = self._load_artifact_file(
+            config_path=config_path, resolution_root=resolution_root, name=name,
+        )
+        if not self._is_previewable_artifact(name, path):
+            raise InvalidIdentifierError("Artifact is not supported for safe preview.")
+        payload = path.read_bytes()[:_MAX_ARTIFACT_PREVIEW_BYTES + 1]
+        truncated = len(payload) > _MAX_ARTIFACT_PREVIEW_BYTES
+        text = payload[:_MAX_ARTIFACT_PREVIEW_BYTES].decode("utf-8", errors="replace")
+        parsed: object | None = None
+        if content_type == "application/json":
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                parsed = None
+        return {
+            "name": name,
+            "content_type": content_type,
+            "text": text,
+            "parsed_json": parsed,
+            "truncated": truncated,
+        }
+
+    def artifact_download(self, *, config_path: str | None, resolution_root: str | Path,
+                          name: str) -> tuple[Path, str]:
+        return self._load_artifact_file(config_path=config_path, resolution_root=resolution_root, name=name)
+
     def run_history(self, *, config_path: str | None, resolution_root: str | Path) -> dict:
         project_id, _config = self._load_project_config(config_path, resolution_root=resolution_root)
         records = self.pipeline_service.list(project_id)
@@ -523,29 +799,30 @@ class ControlTranslatorService:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         fw = config["framework"]
         lock = ProjectMutationLock(self.project_store, project_id)
+        updated: list[str] = []
+        already_updated: list[str] = []
+        not_found: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            store = MappingStore(config["mapping"]["store"])
-            mapping = store.load(fw["id"], fw["version"])
+            mapping_path = config["mapping"]["store"]
+            with _locked_mutable_paths([mapping_path]):
+                store = MappingStore(mapping_path)
+                mapping = store.load(fw["id"], fw["version"])
 
-            updated: list[str] = []
-            already_updated: list[str] = []
-            not_found: list[str] = []
+                for control_id in control_ids:
+                    item = mapping.mappings.get(control_id)
+                    if item is None:
+                        not_found.append(control_id)
+                        continue
+                    if item.decision is decision:
+                        already_updated.append(control_id)
+                        continue
+                    item.decision = decision
+                    item.source = "human"
+                    updated.append(control_id)
 
-            for control_id in control_ids:
-                item = mapping.mappings.get(control_id)
-                if item is None:
-                    not_found.append(control_id)
-                    continue
-                if item.decision is decision:
-                    already_updated.append(control_id)
-                    continue
-                item.decision = decision
-                item.source = "human"
-                updated.append(control_id)
-
-            if updated:
-                store.save(mapping)
+                if updated:
+                    store.save(mapping)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -660,6 +937,10 @@ class ControlTranslatorService:
                 self.project_store.create(name=target.stem, project_id=project_id)
             except ProjectAlreadyExistsError:
                 self.project_store.load(project_id)
+        if not config["mapping"].get("corrections"):
+            config["mapping"]["corrections"] = str(
+                self.project_store.resolve_path(project_id, "guidance/guidance.json")
+            )
         return project_id, config
 
     @staticmethod
@@ -693,6 +974,95 @@ class ControlTranslatorService:
             return []
         data = json.loads(path.read_text(encoding="utf-8"))
         return [item for item in data if isinstance(item, dict) and item.get("source") == "auto-preview"]
+
+    @staticmethod
+    def _oos_register_paths(config: dict) -> list[str]:
+        paths = config["mapping"].get("global_ignore", [])
+        if isinstance(paths, str):
+            paths = [paths]
+        if not paths:
+            raise ProjectConfigError("No global_ignore paths configured for this project.")
+        return [str(path) for path in paths]
+
+    def _guidance_path(self, project_id: str, config: dict) -> tuple[str, bool]:
+        configured = config["mapping"].get("corrections")
+        if configured:
+            selected = configured[-1] if isinstance(configured, list) else configured
+            return str(selected), True
+        return str(self.project_store.resolve_path(project_id, "guidance/guidance.json")), False
+
+    @staticmethod
+    def _load_guidance_entries(path: str) -> list[dict]:
+        entries = load_corrections(path)
+        normalized: list[dict] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            item = dict(entry)
+            item.setdefault("id", uuid5(NAMESPACE_URL, json.dumps(item, sort_keys=True)).hex)
+            item.setdefault("include_reasoning", item.get("guidance", ""))
+            normalized.append(item)
+        return normalized
+
+    @staticmethod
+    def _save_json_list(path: str, entries: list[dict]) -> None:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(entries, fh, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def _timestamp() -> str:
+        return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _norm_policy_id(policy_id: str) -> str:
+        return policy_id.rstrip("/").split("/")[-1].lower()
+
+    @staticmethod
+    def _artifact_allow_list() -> dict[str, str]:
+        return {
+            "policySet.json": "application/json",
+            "assignment.json": "application/json",
+            "main.bicep": "text/plain; charset=utf-8",
+            "deploy.sh": "text/x-shellscript; charset=utf-8",
+            "out-of-scope.json": "application/json",
+            "oos-candidates.json": "application/json",
+            "oos-reconsidered.json": "application/json",
+        }
+
+    @staticmethod
+    def _artifact_path(bundle_dir: Path, name: str) -> Path | None:
+        if name not in ControlTranslatorService._artifact_allow_list() or "/" in name or "\\" in name:
+            return None
+        path = (bundle_dir / name).resolve()
+        try:
+            path.relative_to(bundle_dir.resolve())
+        except ValueError:
+            return None
+        if path.is_symlink():
+            return None
+        return path
+
+    @staticmethod
+    def _is_previewable_artifact(name: str, path: Path) -> bool:
+        if name not in {"policySet.json", "assignment.json", "main.bicep", "out-of-scope.json",
+                        "oos-candidates.json", "oos-reconsidered.json"}:
+            return False
+        return path.stat().st_size <= (_MAX_ARTIFACT_PREVIEW_BYTES * 4)
+
+    def _load_artifact_file(self, *, config_path: str | None, resolution_root: str | Path,
+                            name: str) -> tuple[Path, str]:
+        _, config = self._load_project_config(config_path, resolution_root=resolution_root)
+        content_type = self._artifact_allow_list().get(name)
+        if not content_type:
+            raise InvalidIdentifierError("Artifact name is not allowed.")
+        bundle_dir = self._bundle_dir(config)
+        if bundle_dir is None:
+            raise ProjectConfigError("No bundle found. Run the pipeline first.")
+        path = self._artifact_path(bundle_dir, name)
+        if path is None or not path.exists() or not path.is_file():
+            raise InvalidIdentifierError("Artifact name is not allowed.")
+        return path, content_type
 
     @staticmethod
     def _bundle_dir(config: dict) -> Path | None:

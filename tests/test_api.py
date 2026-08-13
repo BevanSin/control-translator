@@ -32,6 +32,7 @@ def _write_config(tmp_path, *, framework_id: str = "sample") -> str:
     config["framework"]["id"] = framework_id
     config["out_dir"] = str(tmp_path / "out")
     config["mapping"]["store"] = str(tmp_path / "mapping.json")
+    config["mapping"]["global_ignore"] = str(tmp_path / "global-ignore.json")
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config), encoding="utf-8")
     return str(path)
@@ -183,6 +184,54 @@ def test_artifact_resource_name_is_allow_listed_not_arbitrary_path(api, tmp_path
     assert resp.status_code == 404
 
 
+def test_artifact_inventory_preview_and_download_are_allow_listed(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/runs",
+        json={"config_path": config_path, "distribute": True},
+        headers=_auth(token),
+    )
+    run_id = resp.json()["run"]["id"]
+    assert _wait_for_terminal(client, token, project_id, run_id)["state"] == "succeeded"
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/artifacts/inventory",
+        params={"config_path": config_path},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    names = {item["name"] for item in resp.json()["items"]}
+    assert "policySet.json" in names
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/artifacts/policySet.json/preview",
+        params={"config_path": config_path},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["content_type"] == "application/json"
+    assert "policySetDefinitions" in resp.json()["text"]
+    assert str(tmp_path) not in json.dumps(resp.json())
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/artifacts/policySet.json/download",
+        params={"config_path": config_path},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-disposition"].startswith("attachment;")
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/artifacts/..%2fpolicySet.json/download",
+        params={"config_path": config_path},
+        headers=_auth(token),
+    )
+    assert resp.status_code in (400, 404, 422)
+    assert str(tmp_path) not in json.dumps(resp.json())
+
+
 def test_cross_project_config_mismatch_is_rejected(api, tmp_path):
     client, token, service = api
     config_a = _write_config(tmp_path / "a", framework_id="sample-a")
@@ -240,8 +289,12 @@ def test_run_lifecycle_and_review_end_to_end(api, tmp_path):
         headers=_auth(token),
     )
     assert resp.status_code == 200
-    pending = {item["control_id"] for item in resp.json()["items"]}
+    review_body = resp.json()
+    pending = {item["control_id"] for item in review_body["items"]}
     assert "SAMPLE-LM-1" in pending
+    assert review_body["total"] >= review_body["count"]
+    for item in review_body["items"]:
+        assert {"control_id", "decision", "confidence", "source", "policies", "rationale"} <= set(item)
 
     resp = client.post(
         f"/api/v1/projects/{project_id}/review/approve",
@@ -259,6 +312,81 @@ def test_run_lifecycle_and_review_end_to_end(api, tmp_path):
     )
     assert resp.status_code == 200
     assert resp.json()["policy_definitions"] >= 1
+
+
+def test_review_guidance_and_oos_workflows_are_confirmed_mutations(api, tmp_path):
+    client, token, service = api
+    config_path = _write_config(tmp_path)
+    project_id = service.project_id_for_config(config_path, resolution_root=REPO_ROOT)
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/runs",
+        json={"config_path": config_path, "distribute": False},
+        headers=_auth(token),
+    )
+    run_id = resp.json()["run"]["id"]
+    assert _wait_for_terminal(client, token, project_id, run_id)["state"] == "succeeded"
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/review",
+        params={"config_path": config_path, "query": "SAMPLE", "status": "review", "page": 1, "page_size": 1},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["page"] == 1
+    assert resp.json()["count"] == 1
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/guidance",
+        params={"config_path": config_path},
+        json={
+            "control_id": "SAMPLE-LM-1",
+            "policy_id": "sample-policy-1",
+            "display_name": "Sample policy",
+            "guidance": "Use this local reviewer guidance on later runs.",
+            "source": "human-review",
+            "provenance": "offline-test",
+        },
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["affects_future_runs"] is True
+    guidance_id = resp.json()["guidance"]["id"]
+
+    resp = client.get(
+        f"/api/v1/projects/{project_id}/guidance",
+        params={"config_path": config_path},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 1
+    assert "Use this local reviewer guidance" in json.dumps(resp.json())
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/guidance/delete",
+        params={"config_path": config_path},
+        json={"ids": [guidance_id]},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == [guidance_id]
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/oos",
+        params={"config_path": config_path},
+        json={"policy_ids": ["sample-policy-oos"], "reasons": ["not required locally"], "register_name": "global"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["added"] == ["sample-policy-oos"]
+
+    resp = client.post(
+        f"/api/v1/projects/{project_id}/oos/reconsider",
+        params={"config_path": config_path},
+        json={"policy_ids": ["sample-policy-oos"]},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["removed"] == ["sample-policy-oos"]
 
 
 @pytest.mark.parametrize(("event_type", "expected_state"), [

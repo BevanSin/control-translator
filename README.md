@@ -273,11 +273,12 @@ ct-api                      # binds 127.0.0.1:8756; prints the session token to 
 | `POST /projects/{id}/open`, `DELETE /projects/{id}` | token | Open (status) / delete a project |
 | `POST /projects/{id}/runs`, `GET .../runs`, `GET .../runs/{run_id}` | token | Start / list / inspect pipeline runs |
 | `GET /projects/{id}/runs/{run_id}/events?after_sequence=N`, `POST .../cancel` | token | Reconnect-safe run event history and cooperative cancellation |
-| `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Pending review + mapping decisions |
-| `POST /projects/{id}/oos` | token | Add policies to the out-of-scope register |
+| `GET /projects/{id}/review`, `POST .../review/approve`, `POST .../review/reject` | token | Searchable/filterable/paginated review + mapping decisions |
+| `GET /projects/{id}/guidance`, `POST .../guidance`, `POST .../guidance/delete` | token | Project-local guidance with source/provenance for future runs |
+| `POST /projects/{id}/oos`, `POST .../oos/reconsider` | token | Add or reconsider policies in the out-of-scope register |
 | `POST /projects/{id}/sources/upload`, `POST .../sources/url` | token | Ingest CSV/XLSX uploads or HTTPS URL sources into project-local normalized CSV |
 | `GET /projects/{id}/mappings/{control_id}`, `GET .../mappings/search` | token | Mapping lookups |
-| `GET /projects/{id}/artifacts`, `GET .../artifacts/{resource_name}` | token | Bundle summary + allow-listed artifact resources |
+| `GET /projects/{id}/artifacts`, `GET .../artifacts/inventory`, `GET .../artifacts/{name}/preview`, `GET .../artifacts/{name}/download` | token | Bundle summary plus allow-listed, bounded previews and attachment downloads |
 
 The events response returns events ordered by sequence, omits duplicate
 sequences, reports `dropped_event_count`, and includes `latest_sequence` plus a
@@ -330,6 +331,21 @@ Dashboard workflow:
    visible. Refreshing or reopening a project reloads run history and resumes
    monitoring any non-terminal run so interrupted/restarted sessions are
    explicit rather than silently lost.
+6. Review mappings through the dashboard table. Search, filter, paginate through
+   all results, inspect confidence/rationale/policy references, select multiple
+   rows, and approve or reject only after the confirmation dialog. Conflict
+   feedback reports updated, already-current, and missing controls.
+7. Manage local guidance with explicit source and provenance. Guidance is stored
+   in the project workspace and feeds future mapping runs; it does not mutate the
+   current mapping store or generated artifacts until the pipeline is run again.
+8. Promote OOS candidates or reconsider OOS entries through the same locked
+   mutation service used by mapping changes. Bulk/destructive actions are
+   disabled while a run owns the project lock and still require confirmation in
+   the browser.
+9. Browse generated artifact inventory by allow-listed names only. Supported
+   text/JSON files use bounded previews; downloads are authenticated attachment
+   responses for generated Azure Policy files and never expose arbitrary
+   filesystem paths or archive contents.
 
 ---
 
@@ -429,7 +445,10 @@ Guarantees:
   it is never assumed stale just because it is old, and a holder (or a
   reclaimer) only ever deletes the exact lock content it just re-verified, so a
   lock replaced by another process in between is never removed out from under
-  its new owner.
+  its new owner. Mapping, OOS, and configured-guidance updates also acquire a
+  canonical resource lock beside each file they rewrite, so separate project
+  configs and pipeline runs that share a mutable file cannot lose concurrent
+  updates.
 - **Crash recovery** — a run left `queued`/`running` by a killed process or an
   unclean restart is never reported as perpetually in-flight: the next time it
   is observed via `get()`/`list()` in a process not actively tracking it, it is
