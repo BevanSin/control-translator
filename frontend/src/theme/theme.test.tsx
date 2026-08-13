@@ -27,7 +27,7 @@ describe('theme preference', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(screen.getByRole('button', { name: /config/i }))
+    await user.click(screen.getByText(/^Config$/))
     await user.click(screen.getByRole('switch', { name: /dark theme/i }))
 
     expect(document.documentElement).toHaveAttribute('data-theme', 'dark')

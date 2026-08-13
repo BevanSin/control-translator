@@ -32,7 +32,7 @@ describe('project dashboard', () => {
     render(<App />)
 
     expect(screen.queryByRole('switch', { name: /dark theme/i })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /config/i }))
+    await user.click(screen.getByText(/^Config$/))
     const themeSwitch = screen.getByRole('switch', { name: /dark theme/i })
     await user.click(themeSwitch)
 
