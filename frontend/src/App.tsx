@@ -583,6 +583,7 @@ function App() {
     projectDataVersion.current += 1
     reviewRequestVersion.current += 1
     artifactPreviewRequestVersion.current += 1
+    setIsMutating(false)
     setReviewItems([])
     setReviewPage(1)
     setReviewTotal(0)

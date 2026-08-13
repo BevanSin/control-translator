@@ -425,6 +425,56 @@ describe('project dashboard', () => {
     expect(await screen.findByText('CTRL-1')).toBeInTheDocument()
   })
 
+  it('invalidates an in-flight mapping mutation when disconnecting', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const pendingApprove = deferred<Response>()
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      const method = init?.method ?? 'GET'
+      if (href.endsWith('/api/v1/projects') && method === 'GET') {
+        return jsonResponse({ count: 1, projects: [project] })
+      }
+      if (href.includes(`/projects/${project.id}/open`)) {
+        return jsonResponse(openStatus())
+      }
+      if (href.includes(`/projects/${project.id}/runs`)) {
+        return jsonResponse({ count: 0, runs: [] })
+      }
+      if (href.includes(`/projects/${project.id}/review/approve`)) {
+        return pendingApprove.promise
+      }
+      if (href.includes(`/projects/${project.id}/review`)) {
+        return jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [reviewMapping('STALE-1')] })
+      }
+      if (href.includes(`/projects/${project.id}/guidance`)) {
+        return jsonResponse({ count: 0, items: [], affects_future_runs: true })
+      }
+      if (href.includes(`/projects/${project.id}/artifacts/inventory`)) {
+        return jsonResponse({ count: 0, items: [] })
+      }
+      return jsonResponse({ error: { code: 'unexpected' } }, { status: 500 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    await user.click(await screen.findByRole('checkbox', { name: /STALE-1/i }))
+    await user.click(screen.getByRole('button', { name: /approve selected/i }))
+
+    await user.click(screen.getByRole('button', { name: /disconnect/i }))
+    pendingApprove.resolve(jsonResponse({ updated: ['STALE-1'], already_updated: [], not_found: [] }))
+    await user.clear(screen.getByLabelText(/session token/i))
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+
+    expect(await screen.findByRole('button', { name: /open/i })).toBeEnabled()
+    expect(screen.queryByText(/1 updated, 0 already current/i)).not.toBeInTheDocument()
+  })
+
   it.each([
     ['/home/runner/work/private/config.json'],
     ['C:\\Users\\runner\\private\\config.json'],
