@@ -24,9 +24,12 @@ URL_PREFIX = "Local dashboard: "
 
 def _assert_assets(names: list[str], artifact: Path) -> None:
     normalized = [name.replace("\\", "/") for name in names]
-    if not any(name.endswith("/control_translator/web_assets/index.html") for name in normalized):
+    if not any(name.endswith("control_translator/web_assets/index.html") for name in normalized):
         raise RuntimeError(f"{artifact.name} does not contain the dashboard index")
-    if not any(re.search(r"/control_translator/web_assets/assets/.*\.js$", name) for name in normalized):
+    if not any(
+        re.search(r"(?:^|/)control_translator/web_assets/assets/.*\.js$", name)
+        for name in normalized
+    ):
         raise RuntimeError(f"{artifact.name} does not contain a dashboard JavaScript bundle")
 
 
