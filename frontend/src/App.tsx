@@ -543,7 +543,7 @@ function App() {
                               <p>Updated {formatDate(project.updated_at)}</p>
                             </div>
                             <div className="card-actions">
-                              <button type="button" onClick={() => openProject(project)} disabled={isRunActionPending}>Open</button>
+                              <button type="button" onClick={() => openProject(project)} disabled={isMutating || isRunActionPending}>Open</button>
                               <button
                                 type="button"
                                 className="danger"
