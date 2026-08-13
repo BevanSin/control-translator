@@ -343,6 +343,105 @@ describe('project dashboard', () => {
     expect(screen.queryByText(/started/i)).not.toBeInTheDocument()
   })
 
+  it('loads Review and Outputs once on first page entry', async () => {
+    const user = userEvent.setup()
+    let reviewCalls = 0
+    let guidanceCalls = 0
+    let artifactCalls = 0
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith('/api/v1/projects')) {
+        return jsonResponse({ count: 1, projects: [project] })
+      }
+      if (href.includes(`/projects/${project.id}/open`)) {
+        return jsonResponse(openStatus())
+      }
+      if (href.includes(`/projects/${project.id}/runs`)) {
+        return jsonResponse({ count: 0, runs: [] })
+      }
+      if (href.includes(`/projects/${project.id}/review`)) {
+        reviewCalls += 1
+        return jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [reviewMapping('AUTO-1')] })
+      }
+      if (href.includes(`/projects/${project.id}/guidance`)) {
+        guidanceCalls += 1
+        return jsonResponse({ count: 0, items: [], affects_future_runs: true })
+      }
+      if (href.includes(`/projects/${project.id}/artifacts/inventory`)) {
+        artifactCalls += 1
+        return jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] })
+      }
+      return jsonResponse({ error: { code: 'unexpected' } }, { status: 500 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+
+    await goToPage(user, 'Review')
+    expect(await screen.findByText('AUTO-1')).toBeInTheDocument()
+    await goToPage(user, 'Create')
+    await goToPage(user, 'Review')
+    expect(reviewCalls).toBe(1)
+    expect(guidanceCalls).toBe(1)
+
+    await goToPage(user, 'Outputs')
+    expect(await screen.findByRole('button', { name: /^preview$/i })).toBeInTheDocument()
+    await goToPage(user, 'Create')
+    await goToPage(user, 'Outputs')
+    expect(artifactCalls).toBe(1)
+  })
+
+  it('ignores stale artifact inventory after switching projects', async () => {
+    const user = userEvent.setup()
+    const staleArtifacts = deferred<Response>()
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith('/api/v1/projects')) {
+        return jsonResponse({ count: 2, projects: [project, projectBeta] })
+      }
+      if (href.includes(`/projects/${project.id}/open`)) {
+        return jsonResponse(openStatus(project.id, 'Alpha Controls'))
+      }
+      if (href.includes(`/projects/${projectBeta.id}/open`)) {
+        return jsonResponse(openStatus(projectBeta.id, 'Beta Controls'))
+      }
+      if (href.includes('/runs')) {
+        return jsonResponse({ count: 0, runs: [] })
+      }
+      if (href.includes(`/projects/${project.id}/artifacts/inventory`)) {
+        return staleArtifacts.promise
+      }
+      if (href.includes(`/projects/${projectBeta.id}/artifacts/inventory`)) {
+        return jsonResponse({ count: 1, items: [{ name: 'beta.json', size_bytes: 8, content_type: 'application/json', previewable: true }] })
+      }
+      return jsonResponse({ error: { code: 'unexpected' } }, { status: 500 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
+    let openButtons = await screen.findAllByRole('button', { name: /open/i })
+    await user.click(openButtons[0])
+    await screen.findByText('Alpha Controls')
+    await goToPage(user, 'Outputs')
+
+    await goToPage(user, 'Create')
+    openButtons = screen.getAllByRole('button', { name: /open/i })
+    await user.click(openButtons[1])
+    await screen.findByText('Beta Controls')
+    await goToPage(user, 'Outputs')
+    expect(await screen.findByText('beta.json')).toBeInTheDocument()
+
+    staleArtifacts.resolve(jsonResponse({ count: 1, items: [{ name: 'alpha.json', size_bytes: 8, content_type: 'application/json', previewable: true }] }))
+    await waitFor(() => expect(screen.queryByText('alpha.json')).not.toBeInTheDocument())
+  })
+
   it('clears project review state and ignores stale project-scoped responses', async () => {
     const user = userEvent.setup()
     const staleReview = deferred<Response>()
@@ -402,7 +501,6 @@ describe('project dashboard', () => {
     expect(await screen.findByText('Alpha Controls')).toBeInTheDocument()
 
     await goToPage(user, 'Review')
-    await user.click(screen.getByRole('button', { name: /refresh review/i }))
     expect(await screen.findByText('ALPHA-1')).toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: /ALPHA-1/i }))
     expect(screen.getByRole('button', { name: /approve selected/i })).toBeEnabled()
@@ -421,7 +519,6 @@ describe('project dashboard', () => {
     staleArtifacts.resolve(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 1, content_type: 'application/json', previewable: true }] }))
     await waitFor(() => expect(screen.queryByText('ALPHA-LATE')).not.toBeInTheDocument())
 
-    await user.click(screen.getByRole('button', { name: /refresh review/i }))
     expect(await screen.findByText('BETA-1')).toBeInTheDocument()
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/review/approve'))).toBe(false)
   })
@@ -461,7 +558,6 @@ describe('project dashboard', () => {
     await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
     await goToPage(user, 'Review')
-    await user.click(screen.getByRole('button', { name: /refresh review/i }))
 
     expect(await screen.findByText('CTRL-1')).toBeInTheDocument()
     expect(screen.getByText(/Page 1 of 2; 11 mappings total/i)).toBeInTheDocument()
@@ -514,7 +610,6 @@ describe('project dashboard', () => {
     await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
     await goToPage(user, 'Review')
-    await user.click(screen.getByRole('button', { name: /refresh review/i }))
     await user.click(await screen.findByRole('checkbox', { name: /STALE-1/i }))
     await user.click(screen.getByRole('button', { name: /approve selected/i }))
 
@@ -616,14 +711,13 @@ describe('project dashboard', () => {
       .mockResolvedValueOnce(jsonResponse({ count: 0, runs: [] }))
       .mockResolvedValueOnce(jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [mapping] }))
       .mockResolvedValueOnce(jsonResponse({ count: 0, items: [], affects_future_runs: true }))
-      .mockResolvedValueOnce(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] }))
       .mockResolvedValueOnce(jsonResponse({ added: ['policy-1'] }))
       .mockResolvedValueOnce(jsonResponse({ updated: ['SAMPLE-LM-1'], already_updated: [], not_found: [] }))
       .mockResolvedValueOnce(jsonResponse({ count: 0, total: 0, page: 1, page_size: 10, items: [] }))
       .mockResolvedValueOnce(jsonResponse({ count: 0, items: [], affects_future_runs: true }))
-      .mockResolvedValueOnce(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] }))
       .mockResolvedValueOnce(jsonResponse({ guidance, deleted: [], affects_future_runs: true }))
       .mockResolvedValueOnce(jsonResponse({ guidance: null, deleted: ['guidance-1'], affects_future_runs: true }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] }))
       .mockResolvedValueOnce(jsonResponse({ name: 'policySet.json', content_type: 'application/json', text: '{"type":"Microsoft.Authorization/policySetDefinitions"}', truncated: false }))
       .mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)
@@ -635,7 +729,6 @@ describe('project dashboard', () => {
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
     await goToPage(user, 'Review')
-    await user.click(screen.getByRole('button', { name: /refresh review/i }))
     expect(await screen.findByText('SAMPLE-LM-1')).toBeInTheDocument()
     expect(screen.queryByText(/token|secret|password/i)).not.toBeInTheDocument()
 
@@ -657,7 +750,7 @@ describe('project dashboard', () => {
     expect(await screen.findByText(/Guidance deleted/i)).toBeInTheDocument()
 
     await goToPage(user, 'Outputs')
-    await user.click(screen.getByRole('button', { name: /^preview$/i }))
+    await user.click(await screen.findByRole('button', { name: /^preview$/i }))
     expect(await screen.findByText(/Microsoft.Authorization\/policySetDefinitions/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^download$/i }))
     expect(await screen.findByText(/Downloaded policySet.json/i)).toBeInTheDocument()

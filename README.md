@@ -381,7 +381,10 @@ Dashboard workflow:
 6. Review mappings through the dashboard table. Search, filter, paginate through
    all results, inspect confidence/rationale/policy references, select multiple
    rows, and approve or reject only after the confirmation dialog. Conflict
-   feedback reports updated, already-current, and missing controls.
+   feedback reports updated, already-current, and missing controls. Review data
+   loads on first entry and remains cached until the project, configuration, or
+   successful run changes; use the explicit refresh control when newer data is
+   expected.
 7. Manage local guidance with explicit source and provenance. Guidance is stored
    in the project workspace and feeds future mapping runs; it does not mutate the
    current mapping store or generated artifacts until the pipeline is run again.
@@ -390,7 +393,8 @@ Dashboard workflow:
    disabled while a run owns the project lock and still require confirmation in
    the browser.
 9. Browse generated artifact inventory by allow-listed names only. Supported
-   text/JSON files use bounded previews; downloads are authenticated attachment
+   text/JSON files use bounded previews; the inventory loads when Outputs is
+   first opened, and downloads are authenticated attachment
    responses for generated Azure Policy files and never expose arbitrary
    filesystem paths or archive contents.
 
