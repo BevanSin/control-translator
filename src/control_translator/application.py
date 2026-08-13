@@ -8,7 +8,6 @@ import json
 import os
 from pathlib import Path
 import re
-import sys
 import threading
 from typing import Callable, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -32,7 +31,7 @@ from .projects import (
     UnsupportedSourceError,
 )
 from .runs import PipelineService, ProjectRunConflictError, RunRecord, RunState
-from .runs.lock import ProjectMutationLock
+from .runs.lock import ProjectMutationLock, ResourceMutationLock
 
 _MAX_RATIONALE_CHARS = 200
 _MAX_GUIDANCE_CHARS = 2000
@@ -43,15 +42,6 @@ _SENSITIVE_TEXT = re.compile(
     r"signature|authorization|api[_-]?key|https?://)",
     re.IGNORECASE,
 )
-_RESOURCE_LOCK_GUARD = threading.Lock()
-_RESOURCE_THREAD_LOCKS: dict[Path, threading.RLock] = {}
-
-if sys.platform != "win32":  # pragma: no branch - exercised on Linux CI
-    import fcntl
-else:  # pragma: no cover - Windows fallback keeps in-process serialization.
-    fcntl = None  # type: ignore[assignment]
-
-
 @dataclass(frozen=True)
 class RunSummary:
     framework: str
@@ -106,35 +96,16 @@ class OOSReconsiderationResult:
 @contextmanager
 def _locked_mutable_paths(paths: list[str] | tuple[str, ...]):
     resolved = sorted({Path(path).resolve(strict=False) for path in paths}, key=str)
-    acquired: list[tuple[threading.RLock, object | None]] = []
+    locks = [ResourceMutationLock(path) for path in resolved]
+    acquired: list[ResourceMutationLock] = []
     try:
-        for path in resolved:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            lock_path = path.parent / f".{path.name}.lock"
-            with _RESOURCE_LOCK_GUARD:
-                thread_lock = _RESOURCE_THREAD_LOCKS.setdefault(lock_path, threading.RLock())
-            thread_lock.acquire()
-            handle = None
-            try:
-                handle = lock_path.open("a+", encoding="utf-8")
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            except BaseException:
-                if handle is not None:
-                    handle.close()
-                thread_lock.release()
-                raise
-            acquired.append((thread_lock, handle))
+        for lock in locks:
+            lock.acquire(run_id=uuid4().hex, wait=True)
+            acquired.append(lock)
         yield
     finally:
-        for thread_lock, handle in reversed(acquired):
-            try:
-                if handle is not None and fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            finally:
-                if handle is not None:
-                    handle.close()
-                thread_lock.release()
+        for lock in reversed(acquired):
+            lock.release()
 
 
 class ApplicationServiceError(Exception):

@@ -32,7 +32,7 @@ from ..events import PipelineEvent
 from ..pipeline import PipelineCancelledError, run_pipeline
 from ..projects import ProjectStore
 from .errors import RunNotFoundError
-from .lock import ProjectMutationLock
+from .lock import ProjectMutationLock, ResourceMutationLock
 from .models import RUN_SCHEMA_VERSION, RunRecord, RunState
 from .store import DEFAULT_MAX_EVENTS, RunStore
 
@@ -98,10 +98,12 @@ class PipelineService:
         run_store = RunStore(self._project_store, project_id, max_events=self._max_events)
         self._reconcile_orphaned_runs(project_id, run_store)
         lock = ProjectMutationLock(self._project_store, project_id)
+        resource_lock = ResourceMutationLock(config["mapping"]["store"])
         run_id = uuid4().hex
         key = (project_id, run_id)
         lock.acquire(run_id)
         try:
+            resource_lock.acquire(run_id)
             now = _timestamp()
             record = RunRecord(id=run_id, project_id=project_id, state=RunState.QUEUED,
                                created_at=now, updated_at=now, schema_version=RUN_SCHEMA_VERSION)
@@ -113,7 +115,16 @@ class PipelineService:
 
             thread = threading.Thread(
                 target=self._execute,
-                args=(project_id, run_id, config, do_distribute, cancel_event, lock, run_store),
+                args=(
+                    project_id,
+                    run_id,
+                    config,
+                    do_distribute,
+                    cancel_event,
+                    lock,
+                    resource_lock,
+                    run_store,
+                ),
                 daemon=True,
                 name=f"pipeline-run-{run_id}",
             )
@@ -139,6 +150,7 @@ class PipelineService:
                 run_store.save_record(failed)
             except Exception:
                 pass  # record may not exist yet if run_store.create() itself failed
+            resource_lock.release()
             lock.release()
             raise
         return RunHandle(run_id=run_id, project_id=project_id)
@@ -244,6 +256,7 @@ class PipelineService:
 
     def _execute(self, project_id: str, run_id: str, config: dict, do_distribute: bool,
                 cancel_event: threading.Event, lock: ProjectMutationLock,
+                resource_lock: ResourceMutationLock,
                 run_store: RunStore) -> None:
         key = (project_id, run_id)
         events: list[dict] = []
@@ -292,6 +305,7 @@ class PipelineService:
             # being observable as "active": otherwise a concurrent list()/get()
             # racing this cleanup could see a non-terminal record with no active
             # tracking and wrongly reconcile it as interrupted.
+            resource_lock.release()
             lock.release()
             with self._guard:
                 self._cancel_events.pop(key, None)

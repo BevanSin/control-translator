@@ -17,6 +17,7 @@ from control_translator.runs import (
     RunRecord,
     RunState,
 )
+from control_translator.runs.lock import ResourceMutationLock
 from control_translator.runs.store import RunStore
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -57,6 +58,21 @@ def test_successful_run_reaches_terminal_state_with_history(tmp_path):
     # mapping carry-forward behaviour is preserved for a project-scoped run
     second = service.wait(project_id, service.start(project_id, config).run_id, timeout=30)
     assert second.state is RunState.SUCCEEDED
+
+
+def test_run_locks_mapping_store_shared_by_other_projects(tmp_path):
+    service, project_store, project_id = _service(tmp_path)
+    config = _project_config(project_store, project_id)
+    resource_lock = ResourceMutationLock(config["mapping"]["store"])
+    resource_lock.acquire("other-project-mutation")
+    try:
+        with pytest.raises(ProjectRunConflictError):
+            service.start(project_id, config)
+    finally:
+        resource_lock.release()
+
+    record = service.wait(project_id, service.start(project_id, config).run_id, timeout=30)
+    assert record.state is RunState.SUCCEEDED
 
 
 @pytest.mark.parametrize("message", [

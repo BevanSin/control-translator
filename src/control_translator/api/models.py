@@ -96,9 +96,23 @@ class RunEventsResponse(BaseModel):
     terminal_state: str | None = None
 
 
+class ReviewPolicyResponse(BaseModel):
+    id: str
+    name: str
+
+
+class MappingReviewItemResponse(BaseModel):
+    control_id: str
+    decision: str
+    confidence: float
+    source: str
+    rationale: str
+    policies: list[ReviewPolicyResponse]
+
+
 class ReviewResponse(BaseModel):
     count: int
-    items: list[dict]
+    items: list[MappingReviewItemResponse]
     total: int | None = None
     page: int | None = None
     page_size: int | None = None

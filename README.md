@@ -445,7 +445,10 @@ Guarantees:
   it is never assumed stale just because it is old, and a holder (or a
   reclaimer) only ever deletes the exact lock content it just re-verified, so a
   lock replaced by another process in between is never removed out from under
-  its new owner.
+  its new owner. Mapping, OOS, and configured-guidance updates also acquire a
+  canonical resource lock beside each file they rewrite, so separate project
+  configs and pipeline runs that share a mutable file cannot lose concurrent
+  updates.
 - **Crash recovery** — a run left `queued`/`running` by a killed process or an
   unclean restart is never reported as perpetually in-flight: the next time it
   is observed via `get()`/`list()` in a process not actively tracking it, it is

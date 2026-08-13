@@ -244,6 +244,8 @@ def test_shared_mutable_file_updates_are_serialized_across_projects(tmp_path, mo
     config_b = _write_config(tmp_path / "b", str(store_path))
     shared_oos_path = tmp_path / "data" / "mappings" / "global-ignore.json"
     service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+    service.status(config_path=config_a, resolution_root=tmp_path)
+    service.status(config_path=config_b, resolution_root=tmp_path)
     slow_first_write = threading.Event()
     original_sanitize = service._sanitize_text
 
