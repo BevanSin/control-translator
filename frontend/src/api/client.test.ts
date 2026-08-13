@@ -19,6 +19,22 @@ describe('ApiClient', () => {
     expect(url).toBe(`${window.location.origin}/api/v1/projects`)
   })
 
+  it('invokes browser fetch without rebinding its receiver', async () => {
+    const fetchImpl = vi.fn(function (this: unknown) {
+      if (this !== undefined) {
+        throw new TypeError('Illegal invocation')
+      }
+      return Promise.resolve(jsonResponse({ count: 0, projects: [] }))
+    })
+    const client = new ApiClient({
+      baseUrl: '',
+      getSessionToken: () => 'token',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    await expect(client.listProjects()).resolves.toEqual([])
+  })
+
   it('uses typed project endpoints with the session token header only', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ count: 1, projects: [project] }))
     const client = new ApiClient({ baseUrl: 'http://127.0.0.1:8756/', getSessionToken: () => 'secret-token', fetchImpl: fetchImpl as unknown as typeof fetch })

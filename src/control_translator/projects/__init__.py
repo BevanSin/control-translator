@@ -1,6 +1,7 @@
 """Filesystem-backed project workspace lifecycle services."""
 
 from .store import (
+    DATA_ROOT_INSTANCE_LOCK_NAME,
     PROJECT_SCHEMA_VERSION,
     WORKSPACE_DIRECTORIES,
     Project,
@@ -27,6 +28,7 @@ from .ingestion import (
 )
 
 __all__ = [
+    "DATA_ROOT_INSTANCE_LOCK_NAME",
     "PROJECT_SCHEMA_VERSION",
     "WORKSPACE_DIRECTORIES",
     "Project",

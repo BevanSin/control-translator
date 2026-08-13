@@ -24,11 +24,21 @@ const REVIEW_PAGE_SIZE = 10
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type SourceMode = 'upload' | 'url'
+type PortalPage = 'home' | 'create' | 'run' | 'review' | 'outputs'
 
-function App() {
+const PORTAL_PAGES: Array<{ id: PortalPage; label: string }> = [
+  { id: 'home', label: 'Home' },
+  { id: 'create', label: 'Create' },
+  { id: 'run', label: 'Run' },
+  { id: 'review', label: 'Review' },
+  { id: 'outputs', label: 'Outputs' },
+]
+
+function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
   const { preference, resolved, setPreference } = useTheme()
+  const [activePage, setActivePage] = useState<PortalPage>('home')
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE)
-  const [sessionToken, setSessionToken] = useState('')
+  const [sessionToken, setSessionToken] = useState(bootstrapToken)
   const [isConnected, setIsConnected] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [loadState, setLoadState] = useState<LoadState>('idle')
@@ -71,6 +81,7 @@ function App() {
   const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
+  const bootstrapAttemptedRef = useRef(false)
   const deleteDialogRef = useRef<HTMLElement>(null)
   const deleteCancelRef = useRef<HTMLButtonElement>(null)
   const deleteTriggerRef = useRef<HTMLButtonElement>(null)
@@ -111,6 +122,18 @@ function App() {
   }, [client])
 
   useEffect(() => {
+    if (!bootstrapToken || bootstrapAttemptedRef.current) {
+      return
+    }
+    bootstrapAttemptedRef.current = true
+    void loadProjects().then((connected) => {
+      if (connected) {
+        setIsConnected(true)
+      }
+    })
+  }, [bootstrapToken, loadProjects])
+
+  useEffect(() => {
     activeProjectIdRef.current = activeProject?.id ?? null
   }, [activeProject])
 
@@ -140,6 +163,7 @@ function App() {
     runRequestVersion.current += 1
     resetProjectScopedData()
     setIsConnected(false)
+    setActivePage('home')
     setSessionToken('')
     setProjects([])
     setLoadState('idle')
@@ -671,37 +695,76 @@ function App() {
       <div className="app-content" inert={deleteTarget !== null}>
         <a className="skip-link" href="#main-content">Skip to project dashboard</a>
         <header className="app-header">
-        <div>
-          <p className="eyebrow">Control Translator</p>
-          <h1>Local project dashboard</h1>
-          <p className="lede">Ingest standards, configure projects, and monitor durable pipeline runs through the authenticated loopback API.</p>
-        </div>
-        <label className="theme-picker">
-          <span>Theme</span>
-          <select
-            aria-label={`Theme preference, currently ${preference}; resolved ${resolved}`}
-            value={preference}
-            onChange={(event) => setPreference(event.target.value as 'system' | 'light' | 'dark')}
-          >
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </label>
+          <div>
+            <p className="eyebrow">Control Translator</p>
+            <h1>Local project dashboard</h1>
+            <p className="lede">Turn a published standard into reviewable Azure Policy artifacts through one guided local workflow.</p>
+          </div>
+          <details className="config-menu">
+            <summary>Config</summary>
+            <div className="config-popover">
+              <div>
+                <strong>Appearance</strong>
+                <p>System-wide portal preferences live here.</p>
+              </div>
+              <label className="switch-row">
+                <span>Dark theme</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={`Dark theme; currently ${resolved}`}
+                  checked={resolved === 'dark'}
+                  onChange={(event) => setPreference(event.target.checked ? 'dark' : 'light')}
+                />
+              </label>
+              <button type="button" className="secondary compact" onClick={() => setPreference('system')} disabled={preference === 'system'}>
+                Use system setting
+              </button>
+            </div>
+          </details>
         </header>
 
-        <nav className="app-nav" aria-label="Project sections">
-        <a href="#projects">Projects</a>
-        <a href="#create-project">Create</a>
-        <a href="#source-setup">Source</a>
-        <a href="#runs">Runs</a>
-        <a href="#mapping-review">Review</a>
-        <a href="#guidance">Guidance</a>
-        <a href="#artifacts">Artifacts</a>
-        <a href="#project-status">Status</a>
+        <nav className="app-nav" aria-label="Primary navigation">
+          {PORTAL_PAGES.map((page) => (
+            <button
+              key={page.id}
+              type="button"
+              aria-current={activePage === page.id ? 'page' : undefined}
+              disabled={!isConnected && page.id !== 'home'}
+              onClick={() => setActivePage(page.id)}
+            >
+              {page.label}
+            </button>
+          ))}
         </nav>
 
         <main id="main-content" className="dashboard" tabIndex={-1}>
+        {activePage === 'home' ? (
+          <section className="panel home-intro" aria-labelledby="welcome-heading">
+            <div className="home-hero">
+              <div>
+                <p className="eyebrow">Start here</p>
+                <h2 id="welcome-heading">From standard to Azure Policy, step by step</h2>
+                <p className="lede">Control Translator keeps source material, mapping decisions, guidance, runs, and generated outputs together in a local project.</p>
+              </div>
+              <span className="badge">{isConnected ? 'Local API connected' : 'Connect to begin'}</span>
+            </div>
+            <ol className="getting-started">
+              <li><strong>Create</strong><span>Create or open a project, then add a CSV, XLSX, or trusted HTTPS standard.</span></li>
+              <li><strong>Run</strong><span>Translate the standard through the six-stage pipeline and monitor durable progress.</span></li>
+              <li><strong>Review</strong><span>Approve mappings, reject mismatches, manage OOS candidates, and record reusable guidance.</span></li>
+              <li><strong>Outputs</strong><span>Preview and download the allow-listed Azure Policy artifacts produced by successful runs.</span></li>
+            </ol>
+            {isConnected ? (
+              <div className="card-actions left-actions">
+                <button type="button" onClick={() => setActivePage('create')}>{projects.length === 0 ? 'Create your first project' : 'Open project setup'}</button>
+                {activeProject ? <button type="button" className="secondary" onClick={() => setActivePage('run')}>Continue with {activeProject.name}</button> : null}
+              </div>
+            ) : null}
+            {isConnected && projects.length === 0 ? <p className="notice subtle">No projects yet. Start with Create to initialize a local workspace.</p> : null}
+          </section>
+        ) : null}
+
         {!isConnected ? (
           <section className="panel bootstrap" aria-labelledby="connect-heading">
             <div>
@@ -744,7 +807,7 @@ function App() {
             <section className="panel controls" aria-labelledby="dashboard-heading">
               <div>
                 <p className="eyebrow">Authenticated session</p>
-                <h2 ref={dashboardHeadingRef} id="dashboard-heading" tabIndex={-1}>Projects</h2>
+                <h2 ref={dashboardHeadingRef} id="dashboard-heading" tabIndex={-1}>{PORTAL_PAGES.find((page) => page.id === activePage)?.label}</h2>
                 {projectLocked ? <p className="lock-text">Run {shortRunId(activeRun.id)} owns the project lock; source and delete mutations are disabled.</p> : null}
               </div>
               <div className="card-actions">
@@ -756,9 +819,9 @@ function App() {
             {message ? <div className="notice" role="status">{message}</div> : null}
             {pollMessage ? <div className="notice subtle" role="status">{pollMessage}</div> : null}
 
-            <section className="grid-layout">
+            <section className={activePage === 'create' ? 'grid-layout' : 'stack'}>
               <div className="stack">
-                <section id="create-project" className="panel" aria-labelledby="create-heading">
+                <section id="create-project" className="panel" aria-labelledby="create-heading" hidden={activePage !== 'create'}>
                   <h2 id="create-heading">Create project</h2>
                   <form className="form-grid" onSubmit={createProject}>
                     <label>
@@ -773,7 +836,7 @@ function App() {
                   </form>
                 </section>
 
-                <section id="projects" className="panel" aria-labelledby="projects-heading">
+                <section id="projects" className="panel" aria-labelledby="projects-heading" hidden={activePage !== 'create'}>
                   <div className="section-heading">
                     <h2 id="projects-heading">Project list</h2>
                     <span className="badge">{projects.length} total</span>
@@ -813,7 +876,7 @@ function App() {
                   ) : null}
                 </section>
 
-                <section id="source-setup" className="panel" aria-labelledby="source-heading">
+                <section id="source-setup" className="panel" aria-labelledby="source-heading" hidden={activePage !== 'create'}>
                   <div className="section-heading">
                     <h2 id="source-heading">Standard source</h2>
                     <span className="badge">CSV / XLSX / URL</span>
@@ -842,7 +905,7 @@ function App() {
                   {sourceResult ? <SourceSummary source={sourceResult} /> : null}
                 </section>
 
-                <section id="runs" className="panel" aria-labelledby="runs-heading">
+                <section id="runs" className="panel" aria-labelledby="runs-heading" hidden={activePage !== 'run'}>
                   <div className="section-heading">
                     <h2 id="runs-heading">Pipeline runs</h2>
                     {isPollingRun ? <span className="badge live">Polling</span> : <span className="badge">{runHistory.length} stored</span>}
@@ -880,7 +943,7 @@ function App() {
                   ) : <StateCard title="Open a project first" text="Run controls appear after a project is opened with a safe config path." />}
                 </section>
 
-                <section id="mapping-review" className="panel" aria-labelledby="review-heading">
+                <section id="mapping-review" className="panel" aria-labelledby="review-heading" hidden={activePage !== 'review'}>
                   <div className="section-heading">
                     <h2 id="review-heading">Mapping review</h2>
                     <span className="badge">{reviewItems.length} shown</span>
@@ -934,7 +997,7 @@ function App() {
                   ) : <StateCard title="Open a project first" text="Mapping review loads after a project is opened." />}
                 </section>
 
-                <section id="guidance" className="panel" aria-labelledby="guidance-heading">
+                <section id="guidance" className="panel" aria-labelledby="guidance-heading" hidden={activePage !== 'review'}>
                   <div className="section-heading">
                     <h2 id="guidance-heading">Local guidance</h2>
                     <span className="badge">{guidanceAffectsRuns ? 'Affects future runs' : 'Stored locally'}</span>
@@ -966,7 +1029,7 @@ function App() {
                   ) : <StateCard title="Open a project first" text="Guidance is isolated to the active project workspace." />}
                 </section>
 
-                <section id="artifacts" className="panel" aria-labelledby="artifacts-heading">
+                <section id="artifacts" className="panel" aria-labelledby="artifacts-heading" hidden={activePage !== 'outputs'}>
                   <div className="section-heading">
                     <h2 id="artifacts-heading">Generated artifacts</h2>
                     <span className="badge">{artifacts.length} available</span>
@@ -1001,7 +1064,7 @@ function App() {
                 </section>
               </div>
 
-              <aside id="project-status" className="panel status-panel" aria-labelledby="status-heading">
+              <aside id="project-status" className="panel status-panel" aria-labelledby="status-heading" hidden={activePage !== 'create'}>
                 <h2 id="status-heading">Open project</h2>
                 <label>
                   <span>Configuration path for open/status</span>

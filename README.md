@@ -1,6 +1,6 @@
 # control-translator
 
-> CLI command: `ct` · MCP server: `ct-mcp` · Local API: `ct-api`
+> CLI command: `ct` · MCP server: `ct-mcp` · Local API: `ct-api` · Local dashboard: `ct-web`
 
 Development is governed through GitHub Issues and agent-prepared pull requests.
 See the [contribution guide](CONTRIBUTING.md) and
@@ -227,7 +227,51 @@ to the future HTTP API and is not part of the current MCP contract.
 
 ---
 
-## Local API — secure loopback transport for a future web UI
+## Local dashboard — supported offline local product
+
+Download the verified `control-translator-dist` artifact from the latest CI run
+or release, extract it, install its wheel with the dashboard extra, then run one
+command:
+
+```powershell
+$wheel = (Get-ChildItem .\control_translator-*.whl).FullName
+pip install "$wheel[web]"
+ct-web
+```
+
+`ct-web` selects and binds an available `127.0.0.1` port before starting the
+server, serves the packaged frontend from that same origin, and opens the
+browser only for an interactive terminal. It never needs Node.js or network
+access at runtime. Use `ct-web --no-browser` for headless operation, or add
+`--print-token` only when deliberately connecting a browser tab manually. The
+token is per-process, is not printed by default, and is never stored on disk.
+
+The browser receives the token only in a URL fragment, removes that fragment
+from its history before rendering, and retains the token in tab memory. It is
+not sent to the server in a URL, saved in browser storage, or included in
+access logs. Stop the launcher with `Ctrl+C`; Uvicorn drains and closes its
+loopback listener cleanly.
+
+Use `ct-web --data-root <directory>` to choose the durable project root. The
+directory must be available and must not be a symlink. If the selected port is
+busy or another launcher already owns it, `ct-web` exits with a deterministic
+message; omit `--port` to select a different available port. An ownership-safe
+lock in the canonical data root prevents two dashboard processes from mutating
+the same projects. A lock left by a terminated process is reclaimed only after
+the recorded process is confirmed dead. Existing data roots are
+forward-compatible only when their project schema is supported:
+back up the root before upgrading, test a copy, and retain the previous wheel
+for rollback. Do not put the data root in this repository, and do not overwrite
+user-owned `data/`, `.env`, `.mcp.json`, source exports, or mapping stores.
+
+Back up the entire selected data root using approved encrypted storage after
+active runs have stopped. To recover from an interrupted run, restart
+`ct-web`, open the project, inspect the durable history, and start a new run
+only after the prior record has reconciled to a terminal state. Troubleshooting
+messages deliberately omit file paths and tokens; verify the installation with
+`ct-web --no-browser`, then check that the displayed loopback URL loads.
+
+## Local API — secure loopback transport for the web UI
 
 `ct-api` exposes the same project/run/review/artifact operations as the CLI and
 MCP server over a small, versioned HTTP API used by the local browser dashboard.
@@ -310,7 +354,10 @@ allow-list. Explicit API origins are restricted to HTTP loopback addresses.
 The token is sent in the `X-CT-Session-Token` header and is kept only in tab
 memory; it is not placed in URLs, logs, localStorage, or other persistent
 browser storage. Theme selection defaults to the operating system preference,
-and only an explicit light/dark choice is persisted.
+and only an explicit light/dark choice is persisted. The guided Home page
+introduces the workflow, while Create, Run, Review, and Outputs keep each stage
+focused. System-wide portal preferences, including the compact theme switch,
+live under Config in the top-right menu.
 
 Dashboard workflow:
 

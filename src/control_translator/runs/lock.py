@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from ..projects import ProjectStore
+from ..projects import DATA_ROOT_INSTANCE_LOCK_NAME, ProjectStore
 from .errors import ProjectRunConflictError
 
 _LOCK_RELATIVE_PATH = "runs/.mutation-lock.json"
@@ -193,3 +193,14 @@ class ResourceMutationLock(_MutationLock):
                 if not wait or time.monotonic() >= deadline:
                     raise
                 time.sleep(0.05)
+
+
+class DataRootInstanceLock(_MutationLock):
+    """Allow only one local dashboard process to own a canonical data root."""
+
+    def __init__(self, data_root: str | Path):
+        canonical = Path(data_root).resolve()
+        super().__init__(
+            canonical / DATA_ROOT_INSTANCE_LOCK_NAME,
+            "The selected data root",
+        )

@@ -22,8 +22,9 @@
 }
 
 .app-header {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 1.5rem;
   align-items: start;
   margin: 2rem 0 1rem;
@@ -52,12 +53,12 @@ p {
 }
 
 h1 {
-  max-width: 15ch;
+  max-width: 18ch;
   margin-bottom: 0.85rem;
   color: var(--text-primary);
-  font-size: clamp(2.35rem, 8vw, 4.8rem);
-  line-height: 0.96;
-  letter-spacing: -0.06em;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 
 h2 {
@@ -79,8 +80,93 @@ h3 {
   font-size: 1.08rem;
 }
 
-.theme-picker {
-  align-self: start;
+.config-menu {
+  position: relative;
+  z-index: 4;
+}
+
+.config-menu summary {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.6rem 0.9rem;
+  color: var(--text-primary);
+  background: var(--surface-strong);
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+}
+
+.config-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-menu summary::after {
+  margin-left: 0.45rem;
+  content: '\25BE';
+}
+
+.config-menu[open] summary::after {
+  content: '\25B4';
+}
+
+.config-popover {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  display: grid;
+  width: min(19rem, calc(100vw - 3rem));
+  gap: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-soft);
+}
+
+.config-popover p {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.switch-row input {
+  width: 2.6rem;
+  height: 1.45rem;
+  appearance: none;
+  border-radius: 999px;
+  padding: 0.15rem;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.switch-row input::before {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+  content: '';
+  transition: transform var(--duration) ease, background-color var(--duration) ease;
+}
+
+.switch-row input:checked {
+  background: var(--accent);
+}
+
+.switch-row input:checked::before {
+  background: var(--accent-contrast);
+  transform: translateX(1.1rem);
+}
+
+button.compact {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.9rem;
 }
 
 .app-nav {
@@ -99,16 +185,28 @@ h3 {
   backdrop-filter: blur(18px);
 }
 
-.app-nav a {
+.app-nav button {
   border-radius: 999px;
   padding: 0.6rem 0.85rem;
   color: var(--text-primary);
-  text-decoration: none;
+  background: transparent;
   font-weight: 800;
 }
 
-.app-nav a:hover {
+.app-nav button:hover,
+.app-nav button[aria-current='page'] {
   background: var(--accent-soft);
+  box-shadow: none;
+  transform: none;
+}
+
+.app-nav button[aria-current='page'] {
+  color: var(--accent);
+}
+
+.app-nav button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .dashboard {
@@ -123,6 +221,63 @@ h3 {
   background: var(--surface);
   box-shadow: var(--shadow-soft);
   backdrop-filter: blur(18px);
+}
+
+.home-intro {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
+.home-hero {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.home-hero h2 {
+  max-width: 19ch;
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  letter-spacing: -0.035em;
+}
+
+.getting-started {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: getting-started;
+}
+
+.getting-started li {
+  display: grid;
+  gap: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--surface-muted);
+  counter-increment: getting-started;
+}
+
+.getting-started li::before {
+  display: grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  content: counter(getting-started);
+  font-weight: 900;
+}
+
+.getting-started span {
+  color: var(--text-muted);
+  font-size: 0.94rem;
+  line-height: 1.45;
 }
 
 .bootstrap,
@@ -476,5 +631,20 @@ textarea {
   .status-panel,
   .app-nav {
     position: static;
+  }
+
+  .home-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .getting-started {
+    grid-template-columns: 1fr;
+  }
+
+  .config-popover {
+    position: fixed;
+    top: 5rem;
+    right: 1rem;
   }
 }

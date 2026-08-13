@@ -27,12 +27,13 @@ describe('theme preference', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.selectOptions(screen.getByLabelText(/theme preference/i), 'light')
+    await user.click(screen.getByText(/^Config$/))
+    await user.click(screen.getByRole('switch', { name: /dark theme/i }))
 
-    expect(document.documentElement).toHaveAttribute('data-theme', 'light')
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
 
-    await user.selectOptions(screen.getByLabelText(/theme preference/i), 'system')
+    await user.click(screen.getByRole('button', { name: /use system setting/i }))
 
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull()
   })
