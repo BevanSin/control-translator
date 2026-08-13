@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import runpy
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -45,8 +45,5 @@ def test_windows_control_break_exit_is_accepted_as_clean_shutdown():
     verifier = runpy.run_path(
         str(Path(__file__).resolve().parents[1] / ".github" / "scripts" / "verify_web_package.py")
     )
-    process = Mock()
-    process.wait.return_value = 3
-
     with patch.object(os, "name", "nt"):
-        verifier["_stop_launcher"](process)
+        assert verifier["_is_clean_shutdown"](3)

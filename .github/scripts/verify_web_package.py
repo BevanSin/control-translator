@@ -128,9 +128,13 @@ def _stop_launcher(process: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         raise RuntimeError("Installed launcher did not shut down after an interrupt") from None
-    expected_codes = {0, 3} if os.name == "nt" else {0}
-    if return_code not in expected_codes:
+    if not _is_clean_shutdown(return_code):
         raise RuntimeError(f"Installed launcher exited with code {return_code}")
+
+
+def _is_clean_shutdown(return_code: int) -> bool:
+    expected_codes = {0, 3} if os.name == "nt" else {0}
+    return return_code in expected_codes
 
 
 def _smoke_launcher(environment: Path, data_root: Path) -> None:
