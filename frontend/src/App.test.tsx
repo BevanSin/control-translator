@@ -46,7 +46,7 @@ describe('project dashboard', () => {
 
     render(<App bootstrapToken="fragment-only-token" />)
 
-    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /no projects yet/i })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0][0])).not.toContain('fragment-only-token')
     expect((fetchMock.mock.calls[0][1]!.headers as Headers).get('X-CT-Session-Token')).toBe('fragment-only-token')
@@ -77,7 +77,7 @@ describe('project dashboard', () => {
     await user.type(screen.getByLabelText(/session token/i), 'tab-only-token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
 
-    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /no projects yet/i })).toBeInTheDocument()
     expect(fetchMock.mock.calls[0][0]).not.toContain('tab-only-token')
     expect((fetchMock.mock.calls[0][1]!.headers as Headers).get('X-CT-Session-Token')).toBe('tab-only-token')
 
@@ -245,7 +245,7 @@ describe('project dashboard', () => {
     await user.type(tokenInput, 'current-token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
 
-    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /no projects yet/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /disconnect/i })).toBeInTheDocument()
   })
 
