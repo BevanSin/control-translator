@@ -13,6 +13,7 @@ from typing import Annotated, Iterable
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 
 from ..application import ApplicationServiceError, ControlTranslatorService, to_dict
 from ..projects import Project
@@ -214,10 +215,24 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         response_model=models.ReviewResponse,
         dependencies=auth_dep,
     )
-    def pending_review(project_id: str, config_path: str | None = None) -> models.ReviewResponse:
+    def pending_review(
+        project_id: str,
+        query: Annotated[str, Query(max_length=models.MAX_QUERY_LENGTH)] = "",
+        status: str | None = "review",
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=100)] = 20,
+        config_path: str | None = None,
+    ) -> models.ReviewResponse:
         _require_matching_project(project_id, config_path)
-        payload = service.pending_review(config_path=config_path, resolution_root=_resolution_root())
-        return models.ReviewResponse(count=payload["count"], items=payload["items"])
+        if not query and status == "review" and page == 1 and page_size == 20:
+            payload = service.pending_review(config_path=config_path, resolution_root=_resolution_root())
+            return models.ReviewResponse(count=payload["count"], items=payload["items"],
+                                         total=payload["count"], page=1, page_size=20)
+        payload = service.list_mappings(
+            query=query, status=status, page=page, page_size=page_size,
+            config_path=config_path, resolution_root=_resolution_root(),
+        )
+        return models.ReviewResponse(**payload)
 
     @router.post(
         "/projects/{project_id}/review/approve",
@@ -261,6 +276,63 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         )
         return models.OOSMutationResponse(added=result.added)
 
+    @router.post(
+        "/projects/{project_id}/oos/reconsider",
+        response_model=models.OOSReconsiderResponse,
+        dependencies=auth_dep,
+    )
+    def reconsider_oos(project_id: str, body: models.OOSReconsiderRequest,
+                       config_path: str | None = None) -> models.OOSReconsiderResponse:
+        _require_matching_project(project_id, config_path)
+        result = service.remove_from_oos_register(
+            policy_ids=body.policy_ids, config_path=config_path, resolution_root=_resolution_root(),
+        )
+        return models.OOSReconsiderResponse(**to_dict(result))
+
+    @router.get(
+        "/projects/{project_id}/guidance",
+        response_model=models.GuidanceResponse,
+        dependencies=auth_dep,
+    )
+    def list_guidance(project_id: str, config_path: str | None = None) -> models.GuidanceResponse:
+        _require_matching_project(project_id, config_path)
+        payload = service.list_guidance(config_path=config_path, resolution_root=_resolution_root())
+        return models.GuidanceResponse(**payload)
+
+    @router.post(
+        "/projects/{project_id}/guidance",
+        response_model=models.GuidanceResponse,
+        dependencies=auth_dep,
+    )
+    def save_guidance(project_id: str, body: models.GuidanceRequest,
+                      config_path: str | None = None) -> models.GuidanceResponse:
+        _require_matching_project(project_id, config_path)
+        result = service.save_guidance(
+            guidance_id=body.id,
+            control_id=body.control_id,
+            policy_id=body.policy_id,
+            display_name=body.display_name,
+            guidance=body.guidance,
+            source=body.source,
+            provenance=body.provenance,
+            config_path=config_path,
+            resolution_root=_resolution_root(),
+        )
+        return models.GuidanceResponse(**to_dict(result))
+
+    @router.post(
+        "/projects/{project_id}/guidance/delete",
+        response_model=models.GuidanceResponse,
+        dependencies=auth_dep,
+    )
+    def delete_guidance(project_id: str, body: models.DeleteGuidanceRequest,
+                        config_path: str | None = None) -> models.GuidanceResponse:
+        _require_matching_project(project_id, config_path)
+        result = service.delete_guidance(
+            guidance_ids=body.ids, config_path=config_path, resolution_root=_resolution_root(),
+        )
+        return models.GuidanceResponse(**to_dict(result))
+
     @router.get(
         "/projects/{project_id}/mappings/search",
         response_model=models.SearchControlsResponse,
@@ -298,6 +370,46 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         _require_matching_project(project_id, config_path)
         summary = service.bundle_summary(config_path=config_path, resolution_root=_resolution_root())
         return _artifact_summary_response(summary)
+
+    @router.get(
+        "/projects/{project_id}/artifacts/inventory",
+        response_model=models.ArtifactInventoryResponse,
+        dependencies=auth_dep,
+    )
+    def artifact_inventory(project_id: str, config_path: str | None = None) -> models.ArtifactInventoryResponse:
+        _require_matching_project(project_id, config_path)
+        payload = service.artifact_inventory(config_path=config_path, resolution_root=_resolution_root())
+        return models.ArtifactInventoryResponse(**payload)
+
+    @router.get(
+        "/projects/{project_id}/artifacts/{resource_name}/preview",
+        response_model=models.ArtifactPreviewResponse,
+        dependencies=auth_dep,
+    )
+    def artifact_preview(project_id: str, resource_name: str,
+                         config_path: str | None = None) -> models.ArtifactPreviewResponse:
+        _require_matching_project(project_id, config_path)
+        payload = service.artifact_preview(
+            config_path=config_path, resolution_root=_resolution_root(), name=resource_name,
+        )
+        return models.ArtifactPreviewResponse(**payload)
+
+    @router.get(
+        "/projects/{project_id}/artifacts/{resource_name}/download",
+        dependencies=auth_dep,
+    )
+    def artifact_download(project_id: str, resource_name: str,
+                          config_path: str | None = None) -> FileResponse:
+        _require_matching_project(project_id, config_path)
+        path, content_type = service.artifact_download(
+            config_path=config_path, resolution_root=_resolution_root(), name=resource_name,
+        )
+        return FileResponse(
+            path,
+            media_type=content_type,
+            filename=resource_name,
+            headers={"Content-Disposition": f'attachment; filename="{resource_name}"'},
+        )
 
     @router.get(
         "/projects/{project_id}/artifacts/{resource_name}",

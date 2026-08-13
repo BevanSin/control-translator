@@ -99,6 +99,9 @@ class RunEventsResponse(BaseModel):
 class ReviewResponse(BaseModel):
     count: int
     items: list[dict]
+    total: int | None = None
+    page: int | None = None
+    page_size: int | None = None
 
 
 class ControlIdsRequest(BaseModel):
@@ -121,6 +124,15 @@ class OOSMutationResponse(BaseModel):
     added: list[str]
 
 
+class OOSReconsiderRequest(BaseModel):
+    policy_ids: list[_Identifier] = Field(min_length=1, max_length=_MAX_BATCH_ITEMS)
+
+
+class OOSReconsiderResponse(BaseModel):
+    removed: list[str]
+    not_found: list[str]
+
+
 class MappingDetailsResponse(BaseModel):
     mapping: dict
 
@@ -128,6 +140,28 @@ class MappingDetailsResponse(BaseModel):
 class SearchControlsResponse(BaseModel):
     count: int
     results: list[dict]
+
+
+class GuidanceRequest(BaseModel):
+    id: str | None = Field(default=None, max_length=_MAX_IDENTIFIER_LENGTH)
+    control_id: _Identifier
+    policy_id: _Identifier
+    display_name: str = Field(default="", max_length=_MAX_NAME_LENGTH)
+    guidance: str = Field(min_length=1, max_length=2000)
+    source: str = Field(min_length=1, max_length=_MAX_NAME_LENGTH)
+    provenance: str = Field(min_length=1, max_length=_MAX_NAME_LENGTH)
+
+
+class DeleteGuidanceRequest(BaseModel):
+    ids: list[_Identifier] = Field(min_length=1, max_length=_MAX_BATCH_ITEMS)
+
+
+class GuidanceResponse(BaseModel):
+    count: int | None = None
+    items: list[dict] = []
+    guidance: dict | None = None
+    deleted: list[str] = []
+    affects_future_runs: bool
 
 
 class ArtifactSummaryResponse(BaseModel):
@@ -141,6 +175,19 @@ class ArtifactSummaryResponse(BaseModel):
 class ArtifactResourceResponse(BaseModel):
     count: int
     items: list[dict]
+
+
+class ArtifactInventoryResponse(BaseModel):
+    count: int
+    items: list[dict]
+
+
+class ArtifactPreviewResponse(BaseModel):
+    name: str
+    content_type: str
+    text: str
+    json: object | None = None
+    truncated: bool
 
 
 class UploadSourceRequest(BaseModel):

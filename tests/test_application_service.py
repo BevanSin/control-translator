@@ -201,3 +201,54 @@ def test_mutations_are_rejected_while_project_run_lock_is_held(tmp_path):
             )
     finally:
         lock.release()
+
+
+def test_guidance_crud_is_project_local_and_affects_future_runs(tmp_path):
+    store_path = tmp_path / "mapping.json"
+    _write_mapping(str(store_path))
+    config_path = _write_config(tmp_path, str(store_path))
+    service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+
+    created = service.save_guidance(
+        guidance_id=None,
+        control_id="C-1",
+        policy_id="p1",
+        display_name="Policy 1",
+        guidance="Reviewer-confirmed relevance for similar controls.",
+        source="human-review",
+        provenance="issue-26-test",
+        config_path=config_path,
+        resolution_root=tmp_path,
+    )
+
+    assert created.affects_future_runs is True
+    guidance_id = created.guidance["id"]
+    listed = service.list_guidance(config_path=config_path, resolution_root=tmp_path)
+    assert listed["count"] == 1
+    assert listed["items"][0]["include_reasoning"].startswith("Reviewer-confirmed")
+
+    deleted = service.delete_guidance(
+        guidance_ids=[guidance_id], config_path=config_path, resolution_root=tmp_path
+    )
+    assert deleted.deleted == [guidance_id]
+    assert service.list_guidance(config_path=config_path, resolution_root=tmp_path)["count"] == 0
+
+
+def test_mapping_list_filters_and_paginates_without_leaking_sensitive_rationale(tmp_path):
+    store_path = tmp_path / "mapping.json"
+    _write_mapping(str(store_path))
+    config_path = _write_config(tmp_path, str(store_path))
+    service = ControlTranslatorService(project_store=ProjectStore(tmp_path / "projects"))
+
+    page = service.list_mappings(
+        query="policy",
+        status="review",
+        page=1,
+        page_size=1,
+        config_path=config_path,
+        resolution_root=tmp_path,
+    )
+
+    assert page["total"] == 1
+    assert page["items"][0]["control_id"] == "C-1"
+    assert page["items"][0]["rationale"] == "[redacted]"
