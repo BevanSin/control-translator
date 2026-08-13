@@ -59,7 +59,12 @@ def test_successful_run_reaches_terminal_state_with_history(tmp_path):
     assert second.state is RunState.SUCCEEDED
 
 
-def test_failed_run_retains_typed_error_and_sanitized_diagnostics(tmp_path, monkeypatch):
+@pytest.mark.parametrize("message", [
+    "secret-endpoint https://contoso.example/api key=abcd1234",
+    "failed while reading /home/runner/work/private/config.json",
+    "failed while reading C:\\Users\\runner\\private\\config.json",
+])
+def test_failed_run_retains_typed_error_and_sanitized_diagnostics(tmp_path, monkeypatch, message):
     service, project_store, project_id = _service(tmp_path)
     config = _project_config(project_store, project_id)
 
@@ -67,7 +72,7 @@ def test_failed_run_retains_typed_error_and_sanitized_diagnostics(tmp_path, monk
         pass
 
     def _explode(*_args, **_kwargs):
-        raise _Boom("secret-endpoint https://contoso.example/api key=abcd1234")
+        raise _Boom(message)
 
     monkeypatch.setattr("control_translator.pipeline.get_builder", _explode)
 
@@ -78,6 +83,7 @@ def test_failed_run_retains_typed_error_and_sanitized_diagnostics(tmp_path, monk
     assert record.error_type == "_Boom"
     assert record.error_message == "[redacted]"
     assert "contoso" not in (record.error_message or "")
+    assert "runner" not in (record.error_message or "")
 
 
 def test_cancellation_is_cooperative_and_reaches_cancelled_state(tmp_path):
@@ -120,6 +126,36 @@ def test_history_survives_a_fresh_service_instance(tmp_path):
 
     events = restarted.events(project_id, handle.run_id)
     assert events and events[-1]["type"] == "run.completed"
+
+
+@pytest.mark.parametrize(("event_type", "expected_state"), [
+    ("run.completed", RunState.SUCCEEDED),
+    ("run.cancelled", RunState.CANCELLED),
+])
+def test_reconcile_uses_persisted_terminal_event_if_metadata_crashed_first(tmp_path, event_type, expected_state):
+    service, project_store, project_id = _service(tmp_path)
+    run_store = RunStore(project_store, project_id)
+    now = "2026-01-01T00:00:00Z"
+    run_id = "c" * 32
+    run_store.create(RunRecord(
+        id=run_id,
+        project_id=project_id,
+        state=RunState.RUNNING,
+        created_at=now,
+        updated_at=now,
+        started_at=now,
+    ))
+    run_store.save_events(run_id, [
+        {"type": "run.started", "run_id": run_id, "sequence": 0, "timestamp": now},
+        {"type": event_type, "run_id": run_id, "sequence": 1, "timestamp": now},
+    ], 0)
+
+    restarted = PipelineService(ProjectStore(project_store.data_root))
+    record = restarted.get(project_id, run_id)
+
+    assert record.state is expected_state
+    assert record.error_type is None
+    assert restarted.events(project_id, run_id)[-1]["type"] == event_type
 
 
 def test_stale_lock_from_a_dead_process_is_reclaimed(tmp_path):

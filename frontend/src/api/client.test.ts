@@ -49,6 +49,54 @@ describe('ApiClient', () => {
     expect(fetchImpl.mock.calls[2][1]!.method).toBe('DELETE')
   })
 
+  it('uses typed source, run, event, and cancellation endpoints', async () => {
+    const run = {
+      schema_version: 1,
+      id: 'f'.repeat(32),
+      project_id: project.id,
+      state: 'running',
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:01Z',
+      started_at: '2026-01-01T00:00:01Z',
+      finished_at: null,
+      error_type: null,
+      error_message: null,
+      dropped_event_count: 0,
+    }
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ source_id: 's1', filename: 'standard.csv', content_type: 'text/csv', size_bytes: 3, rows: 1, columns: 2, sha256: 'abc', project_path: 'source/standard.csv' }, { status: 201 }))
+      .mockResolvedValueOnce(jsonResponse({ run }, { status: 202 }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, runs: [run] }))
+      .mockResolvedValueOnce(jsonResponse({ run }))
+      .mockResolvedValueOnce(jsonResponse({
+        count: 2,
+        dropped_event_count: 0,
+        latest_sequence: 2,
+        terminal_state: null,
+        events: [
+          { schema_version: 1, type: 'stage.completed', run_id: run.id, sequence: 2, timestamp: run.updated_at, stage: 'ingest', message: 'Ingest completed', summary: {} },
+          { schema_version: 1, type: 'stage.started', run_id: run.id, sequence: 1, timestamp: run.updated_at, stage: 'ingest', message: 'Ingest started', summary: {} },
+          { schema_version: 1, type: 'stage.started', run_id: run.id, sequence: 1, timestamp: run.updated_at, stage: 'ingest', message: 'Duplicate', summary: {} },
+        ],
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    const client = new ApiClient({ baseUrl: 'http://127.0.0.1:8756', getSessionToken: () => 'token', fetchImpl: fetchImpl as unknown as typeof fetch })
+
+    await client.uploadSource(project.id, { config_path: 'config/sample.json', filename: 'standard.csv', content_type: 'text/csv', content: 'YSxi' })
+    await client.startRun(project.id, { config_path: 'config/sample.json', distribute: true })
+    await client.listRuns(project.id)
+    await client.getRun(project.id, run.id)
+    const events = await client.getRunEvents(project.id, run.id, 0)
+    await client.cancelRun(project.id, run.id)
+
+    expect(fetchImpl.mock.calls[0][0]).toContain(`/api/v1/projects/${project.id}/sources/upload`)
+    expect(fetchImpl.mock.calls[1][0]).toContain(`/api/v1/projects/${project.id}/runs`)
+    expect(fetchImpl.mock.calls[4][0]).toContain(`after_sequence=0`)
+    expect(events.events.map((event) => event.sequence)).toEqual([1, 2])
+    expect(fetchImpl.mock.calls[5][0]).toContain(`/cancel`)
+  })
+
   it('maps backend errors to safe messages without rendering raw details', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'invalid_project_or_config', message: '/home/user/private/config.json missing' } }, { status: 400 }))
     const client = new ApiClient({ baseUrl: 'http://127.0.0.1:8756', getSessionToken: () => 'token', fetchImpl: fetchImpl as unknown as typeof fetch })

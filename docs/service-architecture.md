@@ -13,10 +13,12 @@ FastAPI phase.
 > for routes and `tests/test_api.py` for its contract/security tests. Remote or
 > multi-user hosting remains out of scope.
 >
-> **Frontend foundation update:** the local React dashboard in `frontend/` uses
-> the same loopback API contracts for project list/create/open/delete flows. It
-> keeps the API session token in tab memory only and leaves ingestion, pipeline,
-> review, guidance, and artifact screens to later increments.
+> **Frontend dashboard update:** the local React dashboard in `frontend/` uses
+> the same loopback API contracts for project list/create/open/delete, source
+> ingestion, run/review launch, polling, cancellation, durable history, and
+> interrupted-run recovery. It keeps the API session token in tab memory only;
+> mapping decision/guidance editing, artifact downloads beyond summary links,
+> and Azure deployment UI remain later increments.
 
 ## Architecture
 
@@ -94,6 +96,11 @@ Each event contains:
 The default history limit is 500. Oldest events are discarded when the limit
 is reached and `RunRecord.dropped_event_count` reports the loss. Clients must
 not assume history starts at sequence zero when that count is non-zero.
+The HTTP API accepts `after_sequence` on the run-events route and returns only
+events with a greater sequence, plus `latest_sequence`, `dropped_event_count`,
+and a single `terminal_state` once the run is durable. This bounded polling
+contract is the supported reconnect/resume transport; WebSockets are not
+required for the local single-user dashboard.
 
 ### Application operations
 
@@ -149,8 +156,10 @@ data and must not be committed or overwritten during code updates.
 
 1. Back up the mapping and OOS stores.
 2. Verify every mutable config path belongs to the intended project.
-3. Run `ct run --config <path>`; a non-zero exit means validation warnings.
-4. Run `ct review --config <path>` or use MCP review resources.
+3. Run `ct run --config <path>` or use the local dashboard to start and monitor
+   the run; a non-zero CLI exit means validation warnings.
+4. Run `ct review --config <path>`, start a dashboard review refresh, or use MCP
+   review resources.
 5. Approve/reject mappings or update OOS decisions.
 6. Run the pipeline again so generated artifacts reflect the decisions.
 7. Inspect the bundle before deployment.

@@ -1,9 +1,18 @@
 import type {
   CreateProjectRequest,
+  IngestSourceResponse,
+  IngestUrlRequest,
   OpenProjectRequest,
+  PipelineEvent,
   Project,
   ProjectListResponse,
   ProjectStatus,
+  RunEventsResponse,
+  RunListResponse,
+  RunRecord,
+  RunResponse,
+  StartRunRequest,
+  UploadSourceRequest,
 } from './contracts'
 
 const SESSION_HEADER = 'X-CT-Session-Token'
@@ -68,6 +77,61 @@ export class ApiClient {
       method: 'DELETE',
       expectJson: false,
     })
+  }
+
+  async uploadSource(projectId: string, request: UploadSourceRequest): Promise<IngestSourceResponse> {
+    return this.request<IngestSourceResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/sources/upload`, {
+      method: 'POST',
+      body: request,
+    })
+  }
+
+  async ingestUrlSource(projectId: string, request: IngestUrlRequest): Promise<IngestSourceResponse> {
+    return this.request<IngestSourceResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/sources/url`, {
+      method: 'POST',
+      body: request,
+    })
+  }
+
+  async startRun(projectId: string, request: StartRunRequest): Promise<RunRecord> {
+    const body = await this.request<RunResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/runs`, {
+      method: 'POST',
+      body: request,
+    })
+    return body.run
+  }
+
+  async listRuns(projectId: string): Promise<RunRecord[]> {
+    const body = await this.request<RunListResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/runs`)
+    return body.runs
+  }
+
+  async getRun(projectId: string, runId: string): Promise<RunRecord> {
+    const body = await this.request<RunResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}`,
+    )
+    return body.run
+  }
+
+  async getRunEvents(projectId: string, runId: string, afterSequence?: number): Promise<RunEventsResponse> {
+    const query = typeof afterSequence === 'number' ? `?after_sequence=${afterSequence}` : ''
+    const body = await this.request<RunEventsResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/events${query}`,
+    )
+    return {
+      ...body,
+      events: orderedUniqueEvents(body.events),
+    }
+  }
+
+  async cancelRun(projectId: string, runId: string): Promise<void> {
+    await this.request<void>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/runs/${encodeURIComponent(runId)}/cancel`,
+      {
+        method: 'POST',
+        expectJson: false,
+      },
+    )
   }
 
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -144,4 +208,17 @@ function invalidOriginError(): ApiClientError {
     0,
     'invalid_api_origin',
   )
+}
+
+function orderedUniqueEvents(events: PipelineEvent[]): PipelineEvent[] {
+  const seen = new Set<number>()
+  return [...events]
+    .sort((left, right) => left.sequence - right.sequence)
+    .filter((event) => {
+      if (seen.has(event.sequence)) {
+        return false
+      }
+      seen.add(event.sequence)
+      return true
+    })
 }

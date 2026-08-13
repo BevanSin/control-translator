@@ -42,7 +42,8 @@ MAX_ERROR_MESSAGE_LENGTH = 200
 # config value. Mirror events.py's caution: redact wholesale rather than parse.
 _SENSITIVE_MESSAGE = re.compile(
     r"(key|token|secret|password|passwd|credential|connection[_-]?string|"
-    r"signature|authorization|api[_-]?key|https?://)",
+    r"signature|authorization|api[_-]?key|https?://|"
+    r"(?:[A-Za-z]:\\|\\\\[^\\]+\\[^\\]+|/(?:[^/\s]+/)+[^/\s]*))",
     re.IGNORECASE,
 )
 
@@ -51,6 +52,11 @@ _SENSITIVE_MESSAGE = re.compile(
 _INTERRUPTED_ERROR_TYPE = "RunInterrupted"
 _INTERRUPTED_ERROR_MESSAGE = (
     "Run did not reach a terminal state before its process exited or restarted.")
+_TERMINAL_EVENT_STATES = {
+    "run.completed": RunState.SUCCEEDED,
+    "run.failed": RunState.FAILED,
+    "run.cancelled": RunState.CANCELLED,
+}
 
 
 def _timestamp() -> str:
@@ -148,6 +154,9 @@ class PipelineService:
     def events(self, project_id: str, run_id: str) -> list[dict]:
         return RunStore(self._project_store, project_id, max_events=self._max_events).load_events(run_id)
 
+    def dropped_event_count(self, project_id: str, run_id: str) -> int:
+        return RunStore(self._project_store, project_id, max_events=self._max_events).load_dropped_event_count(run_id)
+
     def cancel(self, project_id: str, run_id: str) -> None:
         """Request cooperative cancellation of a running run.
 
@@ -200,12 +209,36 @@ class PipelineService:
             active = (project_id, record.id) in self._threads
         if active:
             return record
+        event_state = self._terminal_state_from_events(run_store, record.id)
+        if event_state is not None:
+            now = _timestamp()
+            error_type = record.error_type if event_state is RunState.FAILED else None
+            error_message = record.error_message if event_state is RunState.FAILED else None
+            reconciled = record.transition(
+                event_state, updated_at=now, finished_at=(record.finished_at or now),
+                error_type=error_type, error_message=error_message,
+                dropped_event_count=run_store.load_dropped_event_count(record.id))
+            run_store.save_record(reconciled)
+            return reconciled
         now = _timestamp()
         reconciled = record.transition(
             RunState.FAILED, updated_at=now, finished_at=(record.finished_at or now),
             error_type=_INTERRUPTED_ERROR_TYPE, error_message=_INTERRUPTED_ERROR_MESSAGE)
         run_store.save_record(reconciled)
         return reconciled
+
+    def _terminal_state_from_events(self, run_store: RunStore, run_id: str) -> RunState | None:
+        terminal: tuple[int, RunState] | None = None
+        for event in run_store.load_events(run_id):
+            state = _TERMINAL_EVENT_STATES.get(str(event.get("type", "")))
+            if state is None:
+                continue
+            sequence = event.get("sequence", -1)
+            if not isinstance(sequence, int) or isinstance(sequence, bool):
+                sequence = -1
+            if terminal is None or sequence >= terminal[0]:
+                terminal = (sequence, state)
+        return terminal[1] if terminal is not None else None
 
     # ── run execution (background thread) ───────────────────────────────────
 
