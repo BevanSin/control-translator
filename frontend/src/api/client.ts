@@ -1,7 +1,12 @@
 import type {
+  ArtifactInventoryResponse,
+  ArtifactPreviewResponse,
   CreateProjectRequest,
+  GuidanceRequest,
+  GuidanceResponse,
   IngestSourceResponse,
   IngestUrlRequest,
+  MappingMutationResponse,
   OpenProjectRequest,
   PipelineEvent,
   Project,
@@ -13,6 +18,7 @@ import type {
   RunResponse,
   StartRunRequest,
   UploadSourceRequest,
+  ReviewResponse,
 } from './contracts'
 
 const SESSION_HEADER = 'X-CT-Session-Token'
@@ -134,6 +140,79 @@ export class ApiClient {
     )
   }
 
+  async reviewMappings(projectId: string, configPath: string | null, query = '', status = 'review', page = 1): Promise<ReviewResponse> {
+    return this.request<ReviewResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/review${queryString({ config_path: configPath, query, status, page: String(page), page_size: '10' })}`,
+    )
+  }
+
+  async mutateMappings(projectId: string, configPath: string | null, action: 'approve' | 'reject', controlIds: string[]): Promise<MappingMutationResponse> {
+    return this.request<MappingMutationResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/review/${action}${queryString({ config_path: configPath })}`,
+      { method: 'POST', body: { control_ids: controlIds } },
+    )
+  }
+
+  async listGuidance(projectId: string, configPath: string | null): Promise<GuidanceResponse> {
+    return this.request<GuidanceResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/guidance${queryString({ config_path: configPath })}`)
+  }
+
+  async saveGuidance(projectId: string, configPath: string | null, request: GuidanceRequest): Promise<GuidanceResponse> {
+    return this.request<GuidanceResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/guidance${queryString({ config_path: configPath })}`,
+      { method: 'POST', body: request },
+    )
+  }
+
+  async deleteGuidance(projectId: string, configPath: string | null, ids: string[]): Promise<GuidanceResponse> {
+    return this.request<GuidanceResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/guidance/delete${queryString({ config_path: configPath })}`,
+      { method: 'POST', body: { ids } },
+    )
+  }
+
+  async addToOos(projectId: string, configPath: string | null, policyIds: string[], reasons: string[]): Promise<{ added: string[] }> {
+    return this.request<{ added: string[] }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/oos${queryString({ config_path: configPath })}`,
+      { method: 'POST', body: { policy_ids: policyIds, reasons, register_name: 'global' } },
+    )
+  }
+
+  async reconsiderOos(projectId: string, configPath: string | null, policyIds: string[]): Promise<{ removed: string[]; not_found: string[] }> {
+    return this.request<{ removed: string[]; not_found: string[] }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/oos/reconsider${queryString({ config_path: configPath })}`,
+      { method: 'POST', body: { policy_ids: policyIds } },
+    )
+  }
+
+  async artifactInventory(projectId: string, configPath: string | null): Promise<ArtifactInventoryResponse> {
+    return this.request<ArtifactInventoryResponse>(`/api/v1/projects/${encodeURIComponent(projectId)}/artifacts/inventory${queryString({ config_path: configPath })}`)
+  }
+
+  async artifactPreview(projectId: string, configPath: string | null, name: string): Promise<ArtifactPreviewResponse> {
+    return this.request<ArtifactPreviewResponse>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(name)}/preview${queryString({ config_path: configPath })}`,
+    )
+  }
+
+  async downloadArtifact(projectId: string, configPath: string | null, name: string): Promise<Blob> {
+    const token = this.getSessionToken().trim()
+    if (!token) {
+      throw new ApiClientError('Connect with the local session token before using the dashboard.', 401)
+    }
+    const baseUrl = normalizeBaseUrl(this.baseUrl)
+    const headers = new Headers()
+    headers.set(SESSION_HEADER, token)
+    const response = await this.fetchImpl(
+      `${baseUrl}/api/v1/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(name)}/download${queryString({ config_path: configPath })}`,
+      { headers },
+    )
+    if (!response.ok) {
+      throw await toSafeError(response)
+    }
+    return response.blob()
+  }
+
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const token = this.getSessionToken().trim()
     if (!token) {
@@ -221,4 +300,15 @@ function orderedUniqueEvents(events: PipelineEvent[]): PipelineEvent[] {
       seen.add(event.sequence)
       return true
     })
+}
+
+function queryString(values: Record<string, string | number | null | undefined>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      params.set(key, String(value))
+    }
+  }
+  const text = params.toString()
+  return text ? `?${text}` : ''
 }

@@ -224,12 +224,54 @@ h3 {
 }
 
 .run-list,
-.event-list {
+.event-list,
+.review-list {
   display: grid;
   gap: 0.7rem;
   margin: 1rem 0 0;
   padding: 0;
   list-style: none;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 14rem) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.review-card {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--surface-muted);
+}
+
+.review-card p,
+.review-card ul {
+  margin-bottom: 0;
+}
+
+.check-row {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.artifact-preview pre {
+  max-height: 24rem;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  background: var(--surface-muted);
+  white-space: pre-wrap;
 }
 
 .run-card {

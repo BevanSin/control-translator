@@ -351,6 +351,83 @@ describe('project dashboard', () => {
     expect(arrayBuffer).not.toHaveBeenCalled()
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/sources/upload'))).toBe(false)
   })
+
+  it('reviews mappings, manages guidance, and safely previews/downloads artifacts', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:artifact')
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    const mapping = {
+      control_id: 'SAMPLE-LM-1',
+      decision: 'review',
+      confidence: 0.87,
+      source: 'auto',
+      rationale: 'Offline rationale',
+      policies: [{ id: 'policy-1', name: 'Audit policy' }],
+    }
+    const guidance = {
+      id: 'guidance-1',
+      control_id: 'SAMPLE-LM-1',
+      policy_id: 'policy-1',
+      display_name: 'Audit policy',
+      include_reasoning: 'Use this local pattern later.',
+      source: 'human-review',
+      provenance: 'offline-test',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 1, projects: [project] }))
+      .mockResolvedValueOnce(jsonResponse(openStatus()))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, runs: [] }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [mapping] }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, items: [], affects_future_runs: true }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] }))
+      .mockResolvedValueOnce(jsonResponse({ added: ['policy-1'] }))
+      .mockResolvedValueOnce(jsonResponse({ updated: ['SAMPLE-LM-1'], already_updated: [], not_found: [] }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, total: 0, page: 1, page_size: 10, items: [] }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, items: [], affects_future_runs: true }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 128, content_type: 'application/json', previewable: true }] }))
+      .mockResolvedValueOnce(jsonResponse({ guidance, deleted: [], affects_future_runs: true }))
+      .mockResolvedValueOnce(jsonResponse({ guidance: null, deleted: ['guidance-1'], affects_future_runs: true }))
+      .mockResolvedValueOnce(jsonResponse({ name: 'policySet.json', content_type: 'application/json', text: '{"type":"Microsoft.Authorization/policySetDefinitions"}', truncated: false }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { container } = render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    expect(await screen.findByText('SAMPLE-LM-1')).toBeInTheDocument()
+    expect(screen.queryByText(/token|secret|password/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /promote first policy to oos candidate/i }))
+    expect(await screen.findByText(/Added 1 policy to the OOS register/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('checkbox', { name: /SAMPLE-LM-1/i }))
+    await user.click(screen.getByRole('button', { name: /approve selected/i }))
+    expect(await screen.findByText(/1 updated, 0 already current, 0 conflicted or missing/i)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/control id/i), 'SAMPLE-LM-1')
+    await user.type(screen.getByLabelText(/policy id/i), 'policy-1')
+    await user.type(screen.getByLabelText(/source\/provenance/i), 'offline-test')
+    await user.type(screen.getByLabelText(/guidance rationale/i), 'Use this local pattern later.')
+    await user.click(screen.getByRole('button', { name: /save guidance/i }))
+    expect(await screen.findByText(/affects future mapping runs/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /delete guidance/i }))
+    expect(await screen.findByText(/Guidance deleted/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^preview$/i }))
+    expect(await screen.findByText(/Microsoft.Authorization\/policySetDefinitions/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^download$/i }))
+    expect(await screen.findByText(/Downloaded policySet.json/i)).toBeInTheDocument()
+    expect(createObjectUrl).toHaveBeenCalled()
+    expect(revokeObjectUrl).toHaveBeenCalledWith('blob:artifact')
+    expect(await axe(container)).toHaveNoViolations()
+  })
 })
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
