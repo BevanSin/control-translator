@@ -128,7 +128,8 @@ def _stop_launcher(process: subprocess.Popen[str]) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         raise RuntimeError("Installed launcher did not shut down after an interrupt") from None
-    if return_code != 0:
+    expected_codes = {0, 3} if os.name == "nt" else {0}
+    if return_code not in expected_codes:
         raise RuntimeError(f"Installed launcher exited with code {return_code}")
 
 

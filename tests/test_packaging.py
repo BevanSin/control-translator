@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import runpy
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -37,3 +39,14 @@ def test_package_inspection_accepts_wheel_and_sdist_asset_paths():
         ],
         Path("control_translator.tar.gz"),
     )
+
+
+def test_windows_control_break_exit_is_accepted_as_clean_shutdown():
+    verifier = runpy.run_path(
+        str(Path(__file__).resolve().parents[1] / ".github" / "scripts" / "verify_web_package.py")
+    )
+    process = Mock()
+    process.wait.return_value = 3
+
+    with patch.object(os, "name", "nt"):
+        verifier["_stop_launcher"](process)
