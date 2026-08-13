@@ -1,9 +1,9 @@
 # Phase 2 service architecture and operations
 
-Phase 2 is the local service foundation used by the CLI and MCP adapters. It is
-implemented and tested offline. It does not expose an HTTP API, accept uploads,
-or select projects on behalf of a remote user; those remain work for a later
-FastAPI phase.
+Phase 2 established the local service foundation used by the CLI and MCP
+adapters. The current local application also includes the loopback `ct-api` and
+React dashboard described below. Remote or multi-user hosting remains out of
+scope; all validation is offline and project-local.
 
 > **Phase 3 update:** the local, loopback-only HTTP API described in this
 > document as future work now exists as `control_translator.api` (`ct-api`).
@@ -17,8 +17,9 @@ FastAPI phase.
 > the same loopback API contracts for project list/create/open/delete, source
 > ingestion, run/review launch, polling, cancellation, durable history, and
 > interrupted-run recovery. It keeps the API session token in tab memory only;
-> mapping decision/guidance editing, artifact downloads beyond summary links,
-> and Azure deployment UI remain later increments.
+> mapping review, local guidance editing, OOS candidate/reconsideration, and
+> allow-listed artifact preview/download are implemented. Azure deployment from
+> the browser remains out of scope.
 
 ## Architecture
 
@@ -105,9 +106,19 @@ required for the local single-user dashboard.
 ### Application operations
 
 `ControlTranslatorService` exposes `run`, `review`, `approve_controls`,
-`reject_controls`, `add_to_oos_register`, `mapping_details`,
-`search_controls`, `status`, `pending_review`, `bundle_json_resource`,
-`bundle_summary`, and `run_history`.
+`reject_controls`, `add_to_oos_register`, `remove_from_oos_register`,
+`list_guidance`, `save_guidance`, `delete_guidance`, `mapping_details`,
+`search_controls`, `list_mappings`, `status`, `pending_review`,
+`bundle_json_resource`, `bundle_summary`, `artifact_inventory`,
+`artifact_preview`, `artifact_download`, and `run_history`.
+
+Mapping, OOS, and guidance writes all acquire the per-project mutation lock and
+return typed conflict/partial-result data. Guidance records require source and
+provenance; by default they are stored under the project `guidance/` directory
+and exposed to future mapping runs through the corrections prompt path. Artifact
+preview/download never accepts arbitrary paths: resource names are allow-listed,
+resolved beneath the bundle directory, symlinks are rejected, previews are
+byte-bounded, and downloads are served as attachments with safe content types.
 
 Application errors have stable codes for adapter mapping:
 
@@ -200,7 +211,7 @@ are the authoritative human decisions and receive the highest backup priority.
   do not expose them directly as unauthenticated HTTP input. `ct-api` accepts a
   config path only from an authenticated caller and additionally restricts
   artifact resource names to a fixed allow-list rather than an arbitrary
-  filename.
+  filename, rejects symlinked artifacts, and bounds text/JSON previews.
 - **Cross-project access:** run storage and active cancellation are keyed by
   `(project_id, run_id)`. A run from one project cannot be read or cancelled
   through another project. `ct-api` additionally verifies that a request's
@@ -210,7 +221,10 @@ are the authoritative human decisions and receive the highest backup priority.
   secret-looking keys, URLs, and exception messages. MCP maps internal errors
   to generic messages. `ct-api` maps every domain exception to a small,
   allow-listed HTTP response and never returns `str(exc)`. Sensitive source
-  prose and credentials must never be added to logs.
+  prose, rationale, guidance, and credentials must never be added to logs,
+  telemetry, URLs, or persistent browser storage. The dashboard keeps reviewer
+  content in React state only and sends mutations in authenticated request
+  bodies.
 - **Deletion:** `ProjectStore.delete` accepts only a validated existing project
   UUID and removes that one workspace. Deletion is permanent; authorize it at
   the future transport layer and back up retained records first.
@@ -224,5 +238,7 @@ The offline acceptance suite in `tests/test_service_acceptance.py` verifies the
 composed lifecycle, explicit failure/cancellation, redaction, cross-project
 denial, path traversal rejection, and deletion containment. `tests/test_api.py`
 covers the additional API-layer security properties (host/origin/token
-enforcement, cross-project rejection, traversal, oversized bodies, and
-cancellation authorization).
+enforcement, cross-project rejection, traversal, oversized bodies, cancellation
+authorization, review/guidance/OOS mutations, and artifact preview/download
+abuse cases). Frontend tests cover confirmations, keyboard-accessible dialogs,
+review/guidance/artifact flows, and axe accessibility checks.
