@@ -140,9 +140,9 @@ export class ApiClient {
     )
   }
 
-  async reviewMappings(projectId: string, configPath: string | null, query = '', status = 'review', page = 1): Promise<ReviewResponse> {
+  async reviewMappings(projectId: string, configPath: string | null, query = '', status = 'review', page = 1, pageSize = 10): Promise<ReviewResponse> {
     return this.request<ReviewResponse>(
-      `/api/v1/projects/${encodeURIComponent(projectId)}/review${queryString({ config_path: configPath, query, status, page: String(page), page_size: '10' })}`,
+      `/api/v1/projects/${encodeURIComponent(projectId)}/review${queryString({ config_path: configPath, query, status, page: String(page), page_size: String(pageSize) })}`,
     )
   }
 

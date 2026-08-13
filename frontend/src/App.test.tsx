@@ -298,6 +298,133 @@ describe('project dashboard', () => {
     expect(screen.queryByText(/started/i)).not.toBeInTheDocument()
   })
 
+  it('clears project review state and ignores stale project-scoped responses', async () => {
+    const user = userEvent.setup()
+    const staleReview = deferred<Response>()
+    const staleGuidance = deferred<Response>()
+    const staleArtifacts = deferred<Response>()
+    let alphaReviewCalls = 0
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      const method = init?.method ?? 'GET'
+      if (href.endsWith('/api/v1/projects') && method === 'GET') {
+        return jsonResponse({ count: 2, projects: [project, projectBeta] })
+      }
+      if (href.includes(`/projects/${project.id}/open`)) {
+        return jsonResponse(openStatus(project.id, 'Alpha Controls'))
+      }
+      if (href.includes(`/projects/${projectBeta.id}/open`)) {
+        return jsonResponse(openStatus(projectBeta.id, 'Beta Controls'))
+      }
+      if (href.includes(`/projects/${project.id}/runs`) || href.includes(`/projects/${projectBeta.id}/runs`)) {
+        return jsonResponse({ count: 0, runs: [] })
+      }
+      if (href.includes(`/projects/${project.id}/review`)) {
+        alphaReviewCalls += 1
+        return alphaReviewCalls === 1
+          ? jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [reviewMapping('ALPHA-1')] })
+          : staleReview.promise
+      }
+      if (href.includes(`/projects/${project.id}/guidance`)) {
+        return alphaReviewCalls === 1
+          ? jsonResponse({ count: 0, items: [], affects_future_runs: true })
+          : staleGuidance.promise
+      }
+      if (href.includes(`/projects/${project.id}/artifacts/inventory`)) {
+        return alphaReviewCalls === 1
+          ? jsonResponse({ count: 0, items: [] })
+          : staleArtifacts.promise
+      }
+      if (href.includes(`/projects/${projectBeta.id}/review`)) {
+        return jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [reviewMapping('BETA-1')] })
+      }
+      if (href.includes(`/projects/${projectBeta.id}/guidance`)) {
+        return jsonResponse({ count: 0, items: [], affects_future_runs: true })
+      }
+      if (href.includes(`/projects/${projectBeta.id}/artifacts/inventory`)) {
+        return jsonResponse({ count: 0, items: [] })
+      }
+      return jsonResponse({ error: { code: 'unexpected' } }, { status: 500 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    let openButtons = await screen.findAllByRole('button', { name: /open/i })
+    await user.click(openButtons[0])
+    expect(await screen.findByText('Alpha Controls')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    expect(await screen.findByText('ALPHA-1')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /ALPHA-1/i }))
+    expect(screen.getByRole('button', { name: /approve selected/i })).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    openButtons = screen.getAllByRole('button', { name: /open/i })
+    await user.click(openButtons[1])
+    expect(await screen.findByText('Beta Controls')).toBeInTheDocument()
+    expect(screen.queryByText('ALPHA-1')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /approve selected/i })).toBeDisabled()
+
+    staleReview.resolve(jsonResponse({ count: 1, total: 1, page: 1, page_size: 10, items: [reviewMapping('ALPHA-LATE')] }))
+    staleGuidance.resolve(jsonResponse({ count: 1, items: [{ id: 'late', control_id: 'ALPHA-LATE', policy_id: 'p', include_reasoning: 'late', source: 'human-review', provenance: 'late' }], affects_future_runs: true }))
+    staleArtifacts.resolve(jsonResponse({ count: 1, items: [{ name: 'policySet.json', size_bytes: 1, content_type: 'application/json', previewable: true }] }))
+    await waitFor(() => expect(screen.queryByText('ALPHA-LATE')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    expect(await screen.findByText('BETA-1')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/review/approve'))).toBe(false)
+  })
+
+  it('paginates mapping review results accessibly', async () => {
+    const user = userEvent.setup()
+    const firstPage = Array.from({ length: 10 }, (_value, index) => reviewMapping(`CTRL-${index + 1}`))
+    const secondPage = [reviewMapping('CTRL-11')]
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const href = String(url)
+      if (href.endsWith('/api/v1/projects')) {
+        return jsonResponse({ count: 1, projects: [project] })
+      }
+      if (href.includes(`/projects/${project.id}/open`)) {
+        return jsonResponse(openStatus())
+      }
+      if (href.includes(`/projects/${project.id}/runs`)) {
+        return jsonResponse({ count: 0, runs: [] })
+      }
+      if (href.includes(`/projects/${project.id}/review`)) {
+        const page = new URL(href).searchParams.get('page')
+        return jsonResponse({ count: page === '2' ? 1 : 10, total: 11, page: Number(page ?? '1'), page_size: 10, items: page === '2' ? secondPage : firstPage })
+      }
+      if (href.includes(`/projects/${project.id}/guidance`)) {
+        return jsonResponse({ count: 0, items: [], affects_future_runs: true })
+      }
+      if (href.includes(`/projects/${project.id}/artifacts/inventory`)) {
+        return jsonResponse({ count: 0, items: [] })
+      }
+      return jsonResponse({ error: { code: 'unexpected' } }, { status: 500 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+    await user.click(screen.getByRole('button', { name: /refresh review/i }))
+
+    expect(await screen.findByText('CTRL-1')).toBeInTheDocument()
+    expect(screen.getByText(/Page 1 of 2; 11 mappings total/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /previous page/i })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /next page/i }))
+
+    expect(await screen.findByText('CTRL-11')).toBeInTheDocument()
+    expect(screen.queryByText('CTRL-1')).not.toBeInTheDocument()
+    expect(screen.getByText(/Page 2 of 2; 11 mappings total/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next page/i })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /previous page/i }))
+    expect(await screen.findByText('CTRL-1')).toBeInTheDocument()
+  })
+
   it.each([
     ['/home/runner/work/private/config.json'],
     ['C:\\Users\\runner\\private\\config.json'],
@@ -463,6 +590,17 @@ function runRecord(id: string, state: 'running' | 'succeeded' | 'failed' | 'canc
     error_type: null,
     error_message: null,
     dropped_event_count: 0,
+  }
+}
+
+function reviewMapping(controlId: string) {
+  return {
+    control_id: controlId,
+    decision: 'review',
+    confidence: 0.87,
+    source: 'auto',
+    rationale: 'Offline rationale',
+    policies: [{ id: `${controlId.toLowerCase()}-policy`, name: `${controlId} policy` }],
   }
 }
 

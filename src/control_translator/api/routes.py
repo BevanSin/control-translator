@@ -224,10 +224,6 @@ def build_router(service: ControlTranslatorService, require_token: SessionTokenA
         config_path: str | None = None,
     ) -> models.ReviewResponse:
         _require_matching_project(project_id, config_path)
-        if not query and status == "review" and page == 1 and page_size == 20:
-            payload = service.pending_review(config_path=config_path, resolution_root=_resolution_root())
-            return models.ReviewResponse(count=payload["count"], items=payload["items"],
-                                         total=payload["count"], page=1, page_size=20)
         payload = service.list_mappings(
             query=query, status=status, page=page, page_size=page_size,
             config_path=config_path, resolution_root=_resolution_root(),

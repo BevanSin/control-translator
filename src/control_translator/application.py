@@ -1,12 +1,14 @@
 """Shared application services for CLI, MCP, and future API adapters."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
+import sys
 import threading
 from typing import Callable, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -41,6 +43,13 @@ _SENSITIVE_TEXT = re.compile(
     r"signature|authorization|api[_-]?key|https?://)",
     re.IGNORECASE,
 )
+_RESOURCE_LOCK_GUARD = threading.Lock()
+_RESOURCE_THREAD_LOCKS: dict[Path, threading.RLock] = {}
+
+if sys.platform != "win32":  # pragma: no branch - exercised on Linux CI
+    import fcntl
+else:  # pragma: no cover - Windows fallback keeps in-process serialization.
+    fcntl = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -92,6 +101,33 @@ class OOSMutationResult:
 class OOSReconsiderationResult:
     removed: list[str]
     not_found: list[str]
+
+
+@contextmanager
+def _locked_mutable_paths(paths: list[str] | tuple[str, ...]):
+    resolved = sorted({Path(path).resolve(strict=False) for path in paths}, key=str)
+    acquired: list[tuple[threading.RLock, object | None]] = []
+    try:
+        for path in resolved:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path = path.parent / f".{path.name}.lock"
+            with _RESOURCE_LOCK_GUARD:
+                thread_lock = _RESOURCE_THREAD_LOCKS.setdefault(lock_path, threading.RLock())
+            thread_lock.acquire()
+            handle = lock_path.open("a+", encoding="utf-8")
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquired.append((thread_lock, handle))
+        yield
+    finally:
+        for thread_lock, handle in reversed(acquired):
+            try:
+                if handle is not None and fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                if handle is not None:
+                    handle.close()
+                thread_lock.release()
 
 
 class ApplicationServiceError(Exception):
@@ -355,25 +391,26 @@ class ControlTranslatorService:
             raise InvalidIdentifierError("register must be either 'global' or 'framework'.")
 
         lock = ProjectMutationLock(self.project_store, project_id)
+        added: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            existing: list[dict] = []
-            if os.path.exists(selected):
-                with open(selected, encoding="utf-8") as fh:
-                    existing = json.load(fh)
+            with _locked_mutable_paths([selected]):
+                existing: list[dict] = []
+                if os.path.exists(selected):
+                    with open(selected, encoding="utf-8") as fh:
+                        existing = json.load(fh)
 
-            added: list[str] = []
-            for policy_id, reason in zip(policy_ids, reasons):
-                existing.append({
-                    "policy_id": policy_id,
-                    "reason": self._sanitize_text(reason),
-                    "oos_date": date.today().isoformat(),
-                })
-                added.append(policy_id)
+                for policy_id, reason in zip(policy_ids, reasons):
+                    existing.append({
+                        "policy_id": policy_id,
+                        "reason": self._sanitize_text(reason),
+                        "oos_date": date.today().isoformat(),
+                    })
+                    added.append(policy_id)
 
-            os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
-            with open(selected, "w", encoding="utf-8") as fh:
-                json.dump(existing, fh, indent=2, ensure_ascii=False)
+                os.makedirs(os.path.dirname(selected) or ".", exist_ok=True)
+                with open(selected, "w", encoding="utf-8") as fh:
+                    json.dump(existing, fh, indent=2, ensure_ascii=False)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -397,31 +434,33 @@ class ControlTranslatorService:
         paths = self._oos_register_paths(config)
         lock = ProjectMutationLock(self.project_store, project_id)
         removed: list[str] = []
+        not_found: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            wanted = {self._norm_policy_id(policy_id): policy_id for policy_id in policy_ids}
-            for path in paths:
-                if not os.path.exists(path):
-                    continue
-                with open(path, encoding="utf-8") as fh:
-                    records = json.load(fh)
-                if not isinstance(records, list):
-                    continue
-                kept: list[object] = []
-                changed = False
-                for record in records:
-                    raw = record if isinstance(record, str) else record.get("policy_id", "")
-                    norm = self._norm_policy_id(str(raw))
-                    if norm in wanted:
-                        if wanted[norm] not in removed:
-                            removed.append(wanted[norm])
-                        changed = True
-                    else:
-                        kept.append(record)
-                if changed:
-                    with open(path, "w", encoding="utf-8") as fh:
-                        json.dump(kept, fh, indent=2, ensure_ascii=False)
-            not_found = [policy_id for policy_id in policy_ids if policy_id not in removed]
+            with _locked_mutable_paths(paths):
+                wanted = {self._norm_policy_id(policy_id): policy_id for policy_id in policy_ids}
+                for path in paths:
+                    if not os.path.exists(path):
+                        continue
+                    with open(path, encoding="utf-8") as fh:
+                        records = json.load(fh)
+                    if not isinstance(records, list):
+                        continue
+                    kept: list[object] = []
+                    changed = False
+                    for record in records:
+                        raw = record if isinstance(record, str) else record.get("policy_id", "")
+                        norm = self._norm_policy_id(str(raw))
+                        if norm in wanted:
+                            if wanted[norm] not in removed:
+                                removed.append(wanted[norm])
+                            changed = True
+                        else:
+                            kept.append(record)
+                    if changed:
+                        with open(path, "w", encoding="utf-8") as fh:
+                            json.dump(kept, fh, indent=2, ensure_ascii=False)
+                not_found = [policy_id for policy_id in policy_ids if policy_id not in removed]
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -463,30 +502,31 @@ class ControlTranslatorService:
         lock = ProjectMutationLock(self.project_store, project_id)
         try:
             lock.acquire(run_id=uuid4().hex)
-            entries = self._load_guidance_entries(path)
-            now = self._timestamp()
-            entry_id = guidance_id.strip() if guidance_id else uuid4().hex
-            entry = {
-                "id": entry_id,
-                "control_id": control_id.strip(),
-                "policy_id": policy_id.strip(),
-                "display_name": display_name.strip(),
-                "include_reasoning": clean_guidance,
-                "source": source.strip(),
-                "provenance": provenance.strip(),
-                "added_date": date.today().isoformat(),
-                "updated_at": now,
-            }
-            replaced = False
-            for index, existing in enumerate(entries):
-                if existing.get("id") == entry_id:
-                    entry["added_date"] = existing.get("added_date", entry["added_date"])
-                    entries[index] = entry
-                    replaced = True
-                    break
-            if not replaced:
-                entries.append(entry)
-            self._save_json_list(path, entries)
+            with _locked_mutable_paths([path]):
+                entries = self._load_guidance_entries(path)
+                now = self._timestamp()
+                entry_id = guidance_id.strip() if guidance_id else uuid4().hex
+                entry = {
+                    "id": entry_id,
+                    "control_id": control_id.strip(),
+                    "policy_id": policy_id.strip(),
+                    "display_name": display_name.strip(),
+                    "include_reasoning": clean_guidance,
+                    "source": source.strip(),
+                    "provenance": provenance.strip(),
+                    "added_date": date.today().isoformat(),
+                    "updated_at": now,
+                }
+                replaced = False
+                for index, existing in enumerate(entries):
+                    if existing.get("id") == entry_id:
+                        entry["added_date"] = existing.get("added_date", entry["added_date"])
+                        entries[index] = entry
+                        replaced = True
+                        break
+                if not replaced:
+                    entries.append(entry)
+                self._save_json_list(path, entries)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -511,17 +551,18 @@ class ControlTranslatorService:
         deleted: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            entries = self._load_guidance_entries(path)
-            wanted = set(guidance_ids)
-            kept = []
-            for entry in entries:
-                entry_id = str(entry.get("id", ""))
-                if entry_id in wanted:
-                    deleted.append(entry_id)
-                else:
-                    kept.append(entry)
-            if deleted:
-                self._save_json_list(path, kept)
+            with _locked_mutable_paths([path]):
+                entries = self._load_guidance_entries(path)
+                wanted = set(guidance_ids)
+                kept = []
+                for entry in entries:
+                    entry_id = str(entry.get("id", ""))
+                    if entry_id in wanted:
+                        deleted.append(entry_id)
+                    else:
+                        kept.append(entry)
+                if deleted:
+                    self._save_json_list(path, kept)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."
@@ -780,29 +821,30 @@ class ControlTranslatorService:
         project_id, config = self._load_project_config(config_path, resolution_root=resolution_root)
         fw = config["framework"]
         lock = ProjectMutationLock(self.project_store, project_id)
+        updated: list[str] = []
+        already_updated: list[str] = []
+        not_found: list[str] = []
         try:
             lock.acquire(run_id=uuid4().hex)
-            store = MappingStore(config["mapping"]["store"])
-            mapping = store.load(fw["id"], fw["version"])
+            mapping_path = config["mapping"]["store"]
+            with _locked_mutable_paths([mapping_path]):
+                store = MappingStore(mapping_path)
+                mapping = store.load(fw["id"], fw["version"])
 
-            updated: list[str] = []
-            already_updated: list[str] = []
-            not_found: list[str] = []
+                for control_id in control_ids:
+                    item = mapping.mappings.get(control_id)
+                    if item is None:
+                        not_found.append(control_id)
+                        continue
+                    if item.decision is decision:
+                        already_updated.append(control_id)
+                        continue
+                    item.decision = decision
+                    item.source = "human"
+                    updated.append(control_id)
 
-            for control_id in control_ids:
-                item = mapping.mappings.get(control_id)
-                if item is None:
-                    not_found.append(control_id)
-                    continue
-                if item.decision is decision:
-                    already_updated.append(control_id)
-                    continue
-                item.decision = decision
-                item.source = "human"
-                updated.append(control_id)
-
-            if updated:
-                store.save(mapping)
+                if updated:
+                    store.save(mapping)
         except ProjectRunConflictError as exc:
             raise PipelineInProgressError(
                 "Project state is currently being updated by an active run. Retry after it completes."

@@ -289,8 +289,12 @@ def test_run_lifecycle_and_review_end_to_end(api, tmp_path):
         headers=_auth(token),
     )
     assert resp.status_code == 200
-    pending = {item["control_id"] for item in resp.json()["items"]}
+    review_body = resp.json()
+    pending = {item["control_id"] for item in review_body["items"]}
     assert "SAMPLE-LM-1" in pending
+    assert review_body["total"] >= review_body["count"]
+    for item in review_body["items"]:
+        assert {"control_id", "decision", "confidence", "source", "policies", "rationale"} <= set(item)
 
     resp = client.post(
         f"/api/v1/projects/{project_id}/review/approve",
