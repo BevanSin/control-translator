@@ -15,12 +15,14 @@ Design goals (see the parent issue for full context):
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.staticfiles import StaticFiles
 
 from ..application import ControlTranslatorService
 from ..projects import MAX_SOURCE_BYTES
@@ -89,6 +91,7 @@ def create_app(
     allowed_hosts: frozenset[str] = ALLOWED_HOSTS,
     allowed_origins: frozenset[str] = DEFAULT_ALLOWED_ORIGINS,
     max_body_bytes: int = MAX_BODY_BYTES,
+    static_assets: str | Path | None = None,
 ) -> FastAPI:
     """Build the local API application.
 
@@ -124,6 +127,8 @@ def create_app(
 
     require_token = SessionTokenAuth(token)
     app.include_router(routes.build_router(app_service, require_token))
+    if static_assets is not None:
+        app.mount("/", StaticFiles(directory=str(static_assets), html=True), name="dashboard")
 
     return app
 

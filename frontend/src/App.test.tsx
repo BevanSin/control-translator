@@ -26,6 +26,18 @@ describe('project dashboard', () => {
     expect(screen.getByRole('navigation', { name: /project sections/i })).toBeInTheDocument()
   })
 
+  it('connects once from an in-memory launcher bootstrap token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ count: 0, projects: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App bootstrapToken="fragment-only-token" />)
+
+    expect(await screen.findByText(/no projects yet/i)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain('fragment-only-token')
+    expect((fetchMock.mock.calls[0][1]!.headers as Headers).get('X-CT-Session-Token')).toBe('fragment-only-token')
+  })
+
   it('handles loading, empty, create, open, and delete project flows', async () => {
     const user = userEvent.setup()
     const fetchMock = vi

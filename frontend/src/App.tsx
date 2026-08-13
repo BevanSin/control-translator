@@ -25,10 +25,10 @@ const REVIEW_PAGE_SIZE = 10
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type SourceMode = 'upload' | 'url'
 
-function App() {
+function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
   const { preference, resolved, setPreference } = useTheme()
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE)
-  const [sessionToken, setSessionToken] = useState('')
+  const [sessionToken, setSessionToken] = useState(bootstrapToken)
   const [isConnected, setIsConnected] = useState(false)
   const [projects, setProjects] = useState<Project[]>([])
   const [loadState, setLoadState] = useState<LoadState>('idle')
@@ -71,6 +71,7 @@ function App() {
   const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
+  const bootstrapAttemptedRef = useRef(false)
   const deleteDialogRef = useRef<HTMLElement>(null)
   const deleteCancelRef = useRef<HTMLButtonElement>(null)
   const deleteTriggerRef = useRef<HTMLButtonElement>(null)
@@ -109,6 +110,18 @@ function App() {
       return false
     }
   }, [client])
+
+  useEffect(() => {
+    if (!bootstrapToken || bootstrapAttemptedRef.current) {
+      return
+    }
+    bootstrapAttemptedRef.current = true
+    void loadProjects().then((connected) => {
+      if (connected) {
+        setIsConnected(true)
+      }
+    })
+  }, [bootstrapToken, loadProjects])
 
   useEffect(() => {
     activeProjectIdRef.current = activeProject?.id ?? null
