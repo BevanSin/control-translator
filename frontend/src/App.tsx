@@ -66,21 +66,28 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
   const [reviewStatus, setReviewStatus] = useState('review')
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewTotal, setReviewTotal] = useState(0)
+  const [isReviewLoading, setIsReviewLoading] = useState(false)
   const [selectedControls, setSelectedControls] = useState<Set<string>>(new Set())
   const [guidanceItems, setGuidanceItems] = useState<GuidanceItem[]>([])
   const [guidanceAffectsRuns, setGuidanceAffectsRuns] = useState(false)
   const [guidanceForm, setGuidanceForm] = useState({ control_id: '', policy_id: '', display_name: '', guidance: '', source: 'human-review', provenance: '' })
   const [artifacts, setArtifacts] = useState<ArtifactInventoryItem[]>([])
+  const [isArtifactsLoading, setIsArtifactsLoading] = useState(false)
   const [artifactPreview, setArtifactPreview] = useState<ArtifactPreviewResponse | null>(null)
   const projectsRequestVersion = useRef(0)
   const openProjectRequestVersion = useRef(0)
   const projectDataVersion = useRef(0)
   const reviewRequestVersion = useRef(0)
+  const artifactInventoryRequestVersion = useRef(0)
   const artifactPreviewRequestVersion = useRef(0)
   const runRequestVersion = useRef(0)
   const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
   const terminalRunIdsRef = useRef<Set<string>>(new Set())
+  const loadedReviewKeyRef = useRef<string | null>(null)
+  const loadingReviewKeyRef = useRef<string | null>(null)
+  const loadedArtifactsKeyRef = useRef<string | null>(null)
+  const loadingArtifactsKeyRef = useRef<string | null>(null)
   const bootstrapAttemptedRef = useRef(false)
   const deleteDialogRef = useRef<HTMLElement>(null)
   const deleteCancelRef = useRef<HTMLButtonElement>(null)
@@ -249,13 +256,15 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
         const requestVersion = ++reviewRequestVersion.current
         const dataVersion = projectDataVersion.current
         const requestedConfigPath = toOptionalPath(configPath)
+        const requestKey = workflowDataKey(project, requestedConfigPath)
         const requestedQuery = reviewQuery
         const requestedStatus = reviewStatus
+        loadingReviewKeyRef.current = requestKey
+        setIsReviewLoading(true)
         try {
-          const [review, guidance, artifactInventory] = await Promise.all([
+          const [review, guidance] = await Promise.all([
             client.reviewMappings(project.id, requestedConfigPath, requestedQuery, requestedStatus, page, REVIEW_PAGE_SIZE),
             client.listGuidance(project.id, requestedConfigPath),
-            client.artifactInventory(project.id, requestedConfigPath).catch(() => ({ count: 0, items: [] })),
           ])
           if (
             requestVersion !== reviewRequestVersion.current
@@ -269,14 +278,94 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
           setReviewTotal(review.total ?? review.count)
           setGuidanceItems(Array.isArray(guidance.items) ? guidance.items : [])
           setGuidanceAffectsRuns(guidance.affects_future_runs)
-          setArtifacts(artifactInventory.items)
           setSelectedControls(new Set())
+          loadedReviewKeyRef.current = requestKey
         } catch (error) {
           if (requestVersion === reviewRequestVersion.current && dataVersion === projectDataVersion.current) {
             setMessage(safeMessage(error))
           }
+        } finally {
+          if (requestVersion === reviewRequestVersion.current) {
+            loadingReviewKeyRef.current = null
+            setIsReviewLoading(false)
+          }
         }
   }
+
+  async function refreshArtifactInventory(project = activeProject) {
+    if (!project) {
+      return
+    }
+    const requestVersion = ++artifactInventoryRequestVersion.current
+    const dataVersion = projectDataVersion.current
+    const requestedConfigPath = toOptionalPath(configPath)
+    const requestKey = workflowDataKey(project, requestedConfigPath)
+    loadingArtifactsKeyRef.current = requestKey
+    setIsArtifactsLoading(true)
+    try {
+      const inventory = await client.artifactInventory(project.id, requestedConfigPath)
+      if (
+        requestVersion !== artifactInventoryRequestVersion.current
+        || dataVersion !== projectDataVersion.current
+        || activeProjectIdRef.current !== project.id
+      ) {
+        return
+      }
+      setArtifacts(inventory.items)
+      loadedArtifactsKeyRef.current = requestKey
+    } catch (error) {
+      if (requestVersion === artifactInventoryRequestVersion.current && dataVersion === projectDataVersion.current) {
+        setMessage(safeMessage(error))
+      }
+    } finally {
+      if (requestVersion === artifactInventoryRequestVersion.current) {
+        loadingArtifactsKeyRef.current = null
+        setIsArtifactsLoading(false)
+      }
+    }
+  }
+
+  function navigateToPage(page: PortalPage) {
+    setActivePage(page)
+    if (!activeProject) {
+      return
+    }
+    const requestKey = workflowDataKey(activeProject, toOptionalPath(configPath))
+    if (
+      page === 'review'
+      && loadedReviewKeyRef.current !== requestKey
+      && loadingReviewKeyRef.current !== requestKey
+    ) {
+      void refreshReviewData(activeProject, 1)
+    }
+    if (
+      page === 'outputs'
+      && loadedArtifactsKeyRef.current !== requestKey
+      && loadingArtifactsKeyRef.current !== requestKey
+    ) {
+      void refreshArtifactInventory(activeProject)
+    }
+  }
+
+  const invalidateWorkflowData = useCallback(() => {
+    reviewRequestVersion.current += 1
+    artifactInventoryRequestVersion.current += 1
+    artifactPreviewRequestVersion.current += 1
+    loadedReviewKeyRef.current = null
+    loadingReviewKeyRef.current = null
+    loadedArtifactsKeyRef.current = null
+    loadingArtifactsKeyRef.current = null
+    setIsReviewLoading(false)
+    setIsArtifactsLoading(false)
+    setReviewItems([])
+    setReviewPage(1)
+    setReviewTotal(0)
+    setSelectedControls(new Set())
+    setGuidanceItems([])
+    setGuidanceAffectsRuns(false)
+    setArtifacts([])
+    setArtifactPreview(null)
+  }, [])
 
   function toggleControl(controlId: string) {
         setSelectedControls((current) => {
@@ -577,6 +666,9 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
       setPollMessage(response.terminal_state ? `Run reached ${labelRunState(response.terminal_state)}.` : '')
       if (response.terminal_state || isTerminalRun(run)) {
         terminalRunIdsRef.current.add(run.id)
+        if (run.state === 'succeeded') {
+          invalidateWorkflowData()
+        }
         runRequestVersion.current += 1
       }
       return run
@@ -586,7 +678,7 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
       }
       return null
     }
-  }, [client])
+  }, [client, invalidateWorkflowData])
 
   function selectRun(run: RunRecord) {
     runRequestVersion.current += 1
@@ -605,18 +697,9 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
 
   function resetProjectScopedData() {
     projectDataVersion.current += 1
-    reviewRequestVersion.current += 1
-    artifactPreviewRequestVersion.current += 1
+    invalidateWorkflowData()
     setIsMutating(false)
-    setReviewItems([])
-    setReviewPage(1)
-    setReviewTotal(0)
-    setSelectedControls(new Set())
-    setGuidanceItems([])
-    setGuidanceAffectsRuns(false)
     setGuidanceForm({ control_id: '', policy_id: '', display_name: '', guidance: '', source: 'human-review', provenance: '' })
-    setArtifacts([])
-    setArtifactPreview(null)
     setSourceResult(null)
   }
 
@@ -731,7 +814,7 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
               type="button"
               aria-current={activePage === page.id ? 'page' : undefined}
               disabled={!isConnected && page.id !== 'home'}
-              onClick={() => setActivePage(page.id)}
+              onClick={() => navigateToPage(page.id)}
             >
               {page.label}
             </button>
@@ -757,8 +840,8 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
             </ol>
             {isConnected ? (
               <div className="card-actions left-actions">
-                <button type="button" onClick={() => setActivePage('create')}>{projects.length === 0 ? 'Create your first project' : 'Open project setup'}</button>
-                {activeProject ? <button type="button" className="secondary" onClick={() => setActivePage('run')}>Continue with {activeProject.name}</button> : null}
+                <button type="button" onClick={() => navigateToPage('create')}>{projects.length === 0 ? 'Create your first project' : 'Open project setup'}</button>
+                {activeProject ? <button type="button" className="secondary" onClick={() => navigateToPage('run')}>Continue with {activeProject.name}</button> : null}
               </div>
             ) : null}
             {isConnected && projects.length === 0 ? <p className="notice subtle">No projects yet. Start with Create to initialize a local workspace.</p> : null}
@@ -964,7 +1047,7 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
                             <option value="">All</option>
                           </select>
                         </label>
-                        <button type="submit">Refresh review</button>
+                        <button type="submit" disabled={isReviewLoading}>{isReviewLoading ? 'Loading review…' : 'Refresh review'}</button>
                       </form>
                       <div className="card-actions left-actions">
                         <button type="button" onClick={() => mutateSelectedMappings('approve')} disabled={projectLocked || isMutating || selectedControls.size === 0}>Approve selected</button>
@@ -1036,7 +1119,7 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
                   </div>
                   {activeProject ? (
                     <>
-                      <button type="button" className="secondary" onClick={() => refreshReviewData()} disabled={isMutating}>Refresh artifact inventory</button>
+                      <button type="button" className="secondary" onClick={() => refreshArtifactInventory()} disabled={isMutating || isArtifactsLoading}>{isArtifactsLoading ? 'Loading artifacts…' : 'Refresh artifact inventory'}</button>
                       <ul className="review-list" aria-label="Generated artifact inventory">
                         {artifacts.map((artifact) => (
                           <li key={artifact.name}>
@@ -1068,7 +1151,7 @@ function App({ bootstrapToken = '' }: { bootstrapToken?: string }) {
                 <h2 id="status-heading">Open project</h2>
                 <label>
                   <span>Configuration path for open/status</span>
-                  <input value={configPath} onChange={(event) => { setConfigPath(event.target.value); setReviewPage(1) }} maxLength={4096} disabled={projectLocked} />
+                  <input value={configPath} onChange={(event) => { setConfigPath(event.target.value); setReviewPage(1); invalidateWorkflowData() }} maxLength={4096} disabled={projectLocked} />
                 </label>
                 {status ? (
                   <dl className="status-list">
@@ -1202,6 +1285,10 @@ function failureSummary(run: RunRecord): string {
 function toOptionalPath(value: string): string | null {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+function workflowDataKey(project: Project, configPath: string | null): string {
+  return `${project.id}\u0000${configPath ?? ''}`
 }
 
 function sortProjects(items: Project[]): Project[] {
