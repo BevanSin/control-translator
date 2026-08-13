@@ -28,9 +28,10 @@ Risk notes:
 
 ## Security review
 
-Apply `security-sensitive` if this changes authentication, secrets, uploads, URL
+The PR policy automatically requires this review for known sensitive paths.
+Apply `security-sensitive` when changes to authentication, secrets, uploads, URL
 fetching, network access, subprocesses, parsers, dependencies, or generated
-deployment artifacts.
+deployment artifacts fall outside those paths.
 
 - [ ] Not security-sensitive
 - [ ] Security review completed

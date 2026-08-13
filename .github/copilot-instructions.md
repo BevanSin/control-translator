@@ -71,8 +71,10 @@ Each stage has its own subpackage under `src/control_translator/` with a factory
 - Apply `major-change` when architecture, user behavior, configuration, generated
   artifacts, or deployment changes materially. Update `README.md` or `docs/` in
   the same pull request.
-- Apply `security-sensitive` to changes involving authentication, secrets,
-  uploads, URL fetching, networking, subprocesses, parsers, dependencies, or
-  generated Azure deployment artifacts. Complete the security review section.
+- Complete the security review section for changes involving authentication,
+  secrets, uploads, URL fetching, networking, subprocesses, parsers,
+  dependencies, CI/CD, or generated Azure deployment artifacts. The PR policy
+  detects known security-sensitive paths automatically; also apply
+  `security-sensitive` when a sensitive change falls outside those paths.
 - Include commands run and acceptance evidence in the pull request description.
 - Close the linked issue only after its acceptance criteria are verified.

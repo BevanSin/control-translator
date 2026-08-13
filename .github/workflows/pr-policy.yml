@@ -24,7 +24,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Enforce labeled pull request policy
+      - name: Test policy enforcement
+        shell: bash
+        run: bash .github/scripts/test-enforce-pr-policy.sh
+
+      - name: Enforce pull request policy
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
