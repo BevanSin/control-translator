@@ -10,6 +10,12 @@ const project = {
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-02T00:00:00Z',
 }
+const projectBeta = {
+  id: 'b2b9f47e-9963-4e23-8fd2-0a4f04513e85',
+  name: 'Beta framework',
+  created_at: '2026-01-03T00:00:00Z',
+  updated_at: '2026-01-04T00:00:00Z',
+}
 
 describe('project dashboard', () => {
   it('passes accessibility checks for the bootstrap screen', async () => {
@@ -177,7 +183,7 @@ describe('project dashboard', () => {
     await user.click(screen.getByRole('button', { name: /connect/i }))
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
-    expect(await screen.findByText(/Failure summary: \[redacted\]/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Failure summary: Details redacted/i)).toBeInTheDocument()
     expect(screen.queryByText(/\/home\/runner|Traceback|secret/i)).not.toBeInTheDocument()
     expect(await axe(container)).toHaveNoViolations()
   })
@@ -230,6 +236,121 @@ describe('project dashboard', () => {
     refresh.resolve(jsonResponse({ count: 1, projects: [project] }))
     await waitFor(() => expect(screen.getByRole('button', { name: /refresh projects/i })).toBeEnabled())
   })
+
+  it('ignores stale open responses that resolve after another project is opened', async () => {
+    const user = userEvent.setup()
+    const alphaStatus = deferred<Response>()
+    const alphaRuns = deferred<Response>()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 2, projects: [project, projectBeta] }))
+      .mockReturnValueOnce(alphaStatus.promise)
+      .mockReturnValueOnce(alphaRuns.promise)
+      .mockResolvedValueOnce(jsonResponse(openStatus(projectBeta.id, 'Beta Controls')))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, runs: [runRecord('d'.repeat(32), 'succeeded', projectBeta.id)] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    const openButtons = await screen.findAllByRole('button', { name: /open/i })
+
+    await user.click(openButtons[0])
+    await user.click(openButtons[1])
+    expect(await screen.findByText('Beta Controls')).toBeInTheDocument()
+
+    alphaStatus.resolve(jsonResponse(openStatus(project.id, 'Alpha Controls')))
+    alphaRuns.resolve(jsonResponse({ count: 0, runs: [] }))
+
+    await waitFor(() => expect(screen.getByText('Beta Controls')).toBeInTheDocument())
+    expect(screen.queryByText('Alpha Controls')).not.toBeInTheDocument()
+    expect(screen.getByText(/Succeeded \(dddddddd\)/i)).toBeInTheDocument()
+  })
+
+  it('keeps run starts scoped to the project that requested them', async () => {
+    const user = userEvent.setup()
+    const pendingStart = deferred<Response>()
+    const wrongProjectRun = runRecord('e'.repeat(32), 'running', projectBeta.id)
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 2, projects: [project, projectBeta] }))
+      .mockResolvedValueOnce(jsonResponse(openStatus()))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, runs: [] }))
+      .mockReturnValueOnce(pendingStart.promise)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click((await screen.findAllByRole('button', { name: /open/i }))[0])
+    await screen.findByText('Sample Controls')
+
+    await user.click(screen.getByRole('button', { name: /^start run$/i }))
+
+    for (const button of screen.getAllByRole('button', { name: /open/i })) {
+      expect(button).toBeDisabled()
+    }
+
+    pendingStart.resolve(jsonResponse({ run: wrongProjectRun }, { status: 202 }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^start run$/i })).toBeEnabled())
+    expect(screen.queryByText(/Run eeeeeeee/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/started/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['/home/runner/work/private/config.json'],
+    ['C:\\Users\\runner\\private\\config.json'],
+  ])('redacts failed run backend diagnostics containing local paths: %s', async (errorMessage) => {
+    const user = userEvent.setup()
+    const failed = {
+      ...runRecord('f'.repeat(32), 'failed'),
+      error_type: 'RuntimeError',
+      error_message: errorMessage,
+      finished_at: '2026-01-01T00:00:05Z',
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 1, projects: [project] }))
+      .mockResolvedValueOnce(jsonResponse(openStatus()))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, runs: [failed] }))
+      .mockResolvedValueOnce(jsonResponse({ run: failed }))
+      .mockResolvedValueOnce(jsonResponse({ count: 1, dropped_event_count: 0, latest_sequence: 1, terminal_state: 'failed', events: [event(failed.id, 1, 'run.failed', 'Pipeline failed')] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+
+    expect(await screen.findByText(/Failure summary: Details redacted/i)).toBeInTheDocument()
+    expect(screen.queryByText(errorMessage)).not.toBeInTheDocument()
+  })
+
+  it('rejects oversized uploads before reading or submitting the file', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ count: 1, projects: [project] }))
+      .mockResolvedValueOnce(jsonResponse(openStatus()))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, runs: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await user.type(screen.getByLabelText(/session token/i), 'token')
+    await user.click(screen.getByRole('button', { name: /connect/i }))
+    await user.click(await screen.findByRole('button', { name: /open/i }))
+
+    const file = new File(['x'], 'too-large.csv', { type: 'text/csv' })
+    Object.defineProperty(file, 'size', { value: 2 * 1024 * 1024 + 1 })
+    const arrayBuffer = vi.spyOn(file, 'arrayBuffer')
+    await user.upload(screen.getByLabelText(/standard file/i), file)
+    await user.click(screen.getByRole('button', { name: /validate and ingest source/i }))
+
+    expect(await screen.findByText(/2 MiB or smaller/i)).toBeInTheDocument()
+    expect(arrayBuffer).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/sources/upload'))).toBe(false)
+  })
 })
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -240,11 +361,11 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   })
 }
 
-function openStatus() {
+function openStatus(projectId = project.id, displayName = 'Sample Controls') {
   return {
-    project_id: project.id,
+    project_id: projectId,
     framework: 'sample',
-    display_name: 'Sample Controls',
+    display_name: displayName,
     store_exists: true,
     has_bundle: false,
     total_mappings: 12,
@@ -252,11 +373,11 @@ function openStatus() {
   }
 }
 
-function runRecord(id: string, state: 'running' | 'succeeded' | 'failed' | 'cancelled') {
+function runRecord(id: string, state: 'running' | 'succeeded' | 'failed' | 'cancelled', projectId = project.id) {
   return {
     schema_version: 1,
     id,
-    project_id: project.id,
+    project_id: projectId,
     state,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:01Z',

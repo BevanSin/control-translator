@@ -8,6 +8,8 @@ import './App.css'
 const DEFAULT_API_BASE = ''
 const DEFAULT_CONFIG_PATH = 'config/nzism-azure.json'
 const POLL_INTERVAL_MS = 750
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+const BASE64_CHUNK_SIZE = 0x8000
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error'
 type SourceMode = 'upload' | 'url'
@@ -39,7 +41,9 @@ function App() {
   const [isRunActionPending, setIsRunActionPending] = useState(false)
   const [pollMessage, setPollMessage] = useState('')
   const projectsRequestVersion = useRef(0)
+  const openProjectRequestVersion = useRef(0)
   const runRequestVersion = useRef(0)
+  const activeProjectIdRef = useRef<string | null>(null)
   const latestSequenceRef = useRef<number | undefined>(undefined)
   const deleteDialogRef = useRef<HTMLElement>(null)
   const deleteCancelRef = useRef<HTMLButtonElement>(null)
@@ -53,7 +57,7 @@ function App() {
 
   const activeRun = selectedRun && !isTerminalRun(selectedRun) ? selectedRun : runHistory.find((run) => !isTerminalRun(run)) ?? null
   const projectLocked = activeRun !== null
-  const isProjectsBusy = loadState === 'loading' || isMutating || projectLocked
+  const isProjectsBusy = loadState === 'loading' || isMutating || isRunActionPending || projectLocked
   const selectedRunId = selectedRun?.id
   const selectedRunIsTerminal = selectedRun ? isTerminalRun(selectedRun) : false
 
@@ -79,6 +83,10 @@ function App() {
     }
   }, [client])
 
+  useEffect(() => {
+    activeProjectIdRef.current = activeProject?.id ?? null
+  }, [activeProject])
+
   const refreshRunHistory = useCallback(async (project: Project, options: { selectLatest?: boolean } = {}) => {
     const runs = sortRuns(await client.listRuns(project.id))
     setRunHistory(runs)
@@ -101,6 +109,7 @@ function App() {
 
   function disconnect() {
     projectsRequestVersion.current += 1
+    openProjectRequestVersion.current += 1
     runRequestVersion.current += 1
     setIsConnected(false)
     setSessionToken('')
@@ -143,6 +152,8 @@ function App() {
   }
 
   async function openProject(project: Project) {
+    const requestVersion = ++openProjectRequestVersion.current
+    runRequestVersion.current += 1
     setMessage('')
     setPollMessage('')
     setStatus(null)
@@ -151,17 +162,27 @@ function App() {
     setSelectedRun(null)
     resetEvents()
     try {
-      const projectStatus = await client.openProject(project.id, { config_path: toOptionalPath(configPath) })
+      const [projectStatus, runs] = await Promise.all([
+        client.openProject(project.id, { config_path: toOptionalPath(configPath) }),
+        client.listRuns(project.id).then(sortRuns),
+      ])
+      if (requestVersion !== openProjectRequestVersion.current || projectStatus.project_id !== project.id) {
+        return
+      }
       setStatus(projectStatus)
       setActiveProject(project)
-      const runs = await refreshRunHistory(project, { selectLatest: true })
+      setRunHistory(runs)
+      setSelectedRun(runs.at(0) ?? null)
+      resetEvents()
       const recoverable = runs.find((run) => !isTerminalRun(run))
       if (recoverable) {
         setSelectedRun(recoverable)
         setMessage(`Recovered in-progress run ${shortRunId(recoverable.id)}. Monitoring has resumed.`)
       }
     } catch (error) {
-      setMessage(safeMessage(error))
+      if (requestVersion === openProjectRequestVersion.current) {
+        setMessage(safeMessage(error))
+      }
     }
   }
 
@@ -233,19 +254,32 @@ function App() {
     if (!activeProject || projectLocked) {
       return
     }
+    const project = activeProject
+    const requestVersion = ++runRequestVersion.current
     setMessage('')
     setPollMessage('')
     setIsRunActionPending(true)
     try {
-      const run = await client.startRun(activeProject.id, { config_path: toOptionalPath(configPath), distribute })
+      const run = await client.startRun(project.id, { config_path: toOptionalPath(configPath), distribute })
+      if (
+        requestVersion !== runRequestVersion.current
+        || activeProjectIdRef.current !== project.id
+        || run.project_id !== project.id
+      ) {
+        return
+      }
       setSelectedRun(run)
       resetEvents()
       setRunHistory((current) => sortRuns([run, ...current.filter((item) => item.id !== run.id)]))
       setMessage(`${distribute ? 'Run' : 'Review refresh'} ${shortRunId(run.id)} started.`)
     } catch (error) {
-      setMessage(safeMessage(error))
+      if (requestVersion === runRequestVersion.current) {
+        setMessage(safeMessage(error))
+      }
     } finally {
-      setIsRunActionPending(false)
+      if (requestVersion === runRequestVersion.current) {
+        setIsRunActionPending(false)
+      }
     }
   }
 
@@ -286,6 +320,9 @@ function App() {
         setRunEvents((current) => mergeEvents(current, response.events))
       }
       setPollMessage(response.terminal_state ? `Run reached ${labelRunState(response.terminal_state)}.` : '')
+      if (response.terminal_state || isTerminalRun(run)) {
+        runRequestVersion.current += 1
+      }
       return run
     } catch (error) {
       if (requestVersion === runRequestVersion.current) {
@@ -459,7 +496,7 @@ function App() {
                 {projectLocked ? <p className="lock-text">Run {shortRunId(activeRun.id)} owns the project lock; source and delete mutations are disabled.</p> : null}
               </div>
               <div className="card-actions">
-                <button type="button" className="secondary" onClick={loadProjects} disabled={loadState === 'loading' || isMutating}>Refresh projects</button>
+                <button type="button" className="secondary" onClick={loadProjects} disabled={isProjectsBusy}>Refresh projects</button>
                 <button type="button" className="secondary" onClick={disconnect}>Disconnect</button>
               </div>
             </section>
@@ -504,7 +541,7 @@ function App() {
                               <p>Updated {formatDate(project.updated_at)}</p>
                             </div>
                             <div className="card-actions">
-                              <button type="button" onClick={() => openProject(project)} disabled={isMutating}>Open</button>
+                              <button type="button" onClick={() => openProject(project)} disabled={isRunActionPending}>Open</button>
                               <button
                                 type="button"
                                 className="danger"
@@ -690,7 +727,7 @@ function RunDetail({ run, events, droppedEventCount, onCancel, cancelDisabled }:
       <div className="section-heading">
         <div>
           <h3 id="run-detail-heading">Run {shortRunId(run.id)}</h3>
-          <p>{run.error_message ? `Failure summary: ${run.error_message}` : `Updated ${formatDate(run.updated_at)}`}</p>
+          <p>{run.error_message ? `Failure summary: ${failureSummary(run)}` : `Updated ${formatDate(run.updated_at)}`}</p>
         </div>
         <span className={`state-pill ${run.state}`}>{labelRunState(run.state)}</span>
       </div>
@@ -718,6 +755,13 @@ function safeMessage(error: unknown): string {
     return error.message
   }
   return 'Something went wrong. Try the action again.'
+}
+
+function failureSummary(run: RunRecord): string {
+  if (run.error_type === 'RunInterrupted') {
+    return 'Run interrupted before completion.'
+  }
+  return 'Details redacted. Check the local API logs for diagnostics.'
 }
 
 function toOptionalPath(value: string): string | null {
@@ -769,12 +813,15 @@ async function fileToBase64(file: File | null): Promise<string> {
   if (!file) {
     return ''
   }
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte)
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new ApiClientError('The selected file must be 2 MiB or smaller.', 413, 'payload_too_large')
   }
-  return window.btoa(binary)
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const chunks: string[] = []
+  for (let index = 0; index < bytes.length; index += BASE64_CHUNK_SIZE) {
+    chunks.push(String.fromCharCode(...bytes.subarray(index, index + BASE64_CHUNK_SIZE)))
+  }
+  return window.btoa(chunks.join(''))
 }
 
 export default App

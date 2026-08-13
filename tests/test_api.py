@@ -261,6 +261,43 @@ def test_run_lifecycle_and_review_end_to_end(api, tmp_path):
     assert resp.json()["policy_definitions"] >= 1
 
 
+@pytest.mark.parametrize(("event_type", "expected_state"), [
+    ("run.completed", "succeeded"),
+    ("run.cancelled", "cancelled"),
+])
+def test_run_events_reconcile_crash_window_to_one_terminal_outcome(api, event_type, expected_state):
+    client, token, service = api
+    project = service.project_store.create("Crash window")
+    run_id = "d" * 32
+    now = datetime.now(timezone.utc).isoformat()
+    run_store = RunStore(service.project_store, project.id)
+    run_store.create(RunRecord(
+        id=run_id,
+        project_id=project.id,
+        state=RunState.RUNNING,
+        created_at=now,
+        updated_at=now,
+        started_at=now,
+    ))
+    run_store.save_events(run_id, [
+        {"type": "run.started", "run_id": run_id, "sequence": 0, "timestamp": now},
+        {"type": event_type, "run_id": run_id, "sequence": 1, "timestamp": now},
+    ], 0)
+
+    resp = client.get(f"/api/v1/projects/{project.id}/runs/{run_id}/events", headers=_auth(token))
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["terminal_state"] == expected_state
+    assert [event["type"] for event in body["events"] if event["type"].startswith("run.")] == [
+        "run.started", event_type,
+    ]
+
+    resp = client.get(f"/api/v1/projects/{project.id}/runs/{run_id}", headers=_auth(token))
+    assert resp.status_code == 200
+    assert resp.json()["run"]["state"] == expected_state
+
+
 def test_create_project_binds_to_config_derived_id_then_configure_and_run(api, tmp_path):
     """A project created via POST /projects must use the same id every other
     config-backed route derives from that config — otherwise it could never
