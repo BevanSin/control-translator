@@ -114,9 +114,16 @@ def _locked_mutable_paths(paths: list[str] | tuple[str, ...]):
             with _RESOURCE_LOCK_GUARD:
                 thread_lock = _RESOURCE_THREAD_LOCKS.setdefault(lock_path, threading.RLock())
             thread_lock.acquire()
-            handle = lock_path.open("a+", encoding="utf-8")
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            handle = None
+            try:
+                handle = lock_path.open("a+", encoding="utf-8")
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            except BaseException:
+                if handle is not None:
+                    handle.close()
+                thread_lock.release()
+                raise
             acquired.append((thread_lock, handle))
         yield
     finally:
