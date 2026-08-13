@@ -23,7 +23,21 @@ describe('project dashboard', () => {
 
     expect(await axe(container)).toHaveNoViolations()
     expect(screen.getByRole('link', { name: /skip to project dashboard/i })).toHaveAttribute('href', '#main-content')
-    expect(screen.getByRole('navigation', { name: /project sections/i })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: /primary navigation/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /from standard to azure policy/i })).toBeInTheDocument()
+  })
+
+  it('keeps appearance controls in a compact Config menu', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(screen.queryByRole('switch', { name: /dark theme/i })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /config/i }))
+    const themeSwitch = screen.getByRole('switch', { name: /dark theme/i })
+    await user.click(themeSwitch)
+
+    expect(themeSwitch).toBeChecked()
+    expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
   })
 
   it('connects once from an in-memory launcher bootstrap token', async () => {
@@ -67,6 +81,7 @@ describe('project dashboard', () => {
     expect(fetchMock.mock.calls[0][0]).not.toContain('tab-only-token')
     expect((fetchMock.mock.calls[0][1]!.headers as Headers).get('X-CT-Session-Token')).toBe('tab-only-token')
 
+    await goToPage(user, 'Create')
     await user.type(screen.getByLabelText(/project name/i), 'Sample framework')
     await user.click(screen.getByRole('button', { name: /create project/i }))
 
@@ -95,7 +110,7 @@ describe('project dashboard', () => {
     await user.click(screen.getByRole('button', { name: /delete project/i }))
 
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Sample framework' })).not.toBeInTheDocument())
-    expect(screen.getByRole('heading', { name: 'Projects' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: 'Create' })).toHaveFocus()
   })
 
   it('ingests a CSV source and completes a run through ordered polling', async () => {
@@ -127,6 +142,7 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
     const file = new File(['a,b\n1,2\n'], 'standard.csv', { type: 'text/csv' })
@@ -134,6 +150,7 @@ describe('project dashboard', () => {
     await user.click(screen.getByRole('button', { name: /validate and ingest source/i }))
     expect(await screen.findByText(/Validated standard.csv: 2 rows, 2 columns/i)).toBeInTheDocument()
 
+    await goToPage(user, 'Run')
     await user.click(screen.getByRole('button', { name: /^start run$/i }))
 
     expect(await screen.findByText(/Run reached Succeeded/i)).toBeInTheDocument()
@@ -162,14 +179,19 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
+    await goToPage(user, 'Run')
     expect(await screen.findByText(/Recovered in-progress run/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^start run$/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /validate and ingest source/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled()
     expect(await screen.findByText(/2 older events were dropped/i)).toBeInTheDocument()
 
+    await goToPage(user, 'Create')
+    expect(screen.getByRole('button', { name: /validate and ingest source/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^delete$/i })).toBeDisabled()
+
+    await goToPage(user, 'Run')
     await user.click(screen.getByRole('button', { name: /cancel run/i }))
 
     expect(await screen.findByText(/Run reached Cancelled/i)).toBeInTheDocument()
@@ -193,7 +215,9 @@ describe('project dashboard', () => {
     const { container } = render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
+    await goToPage(user, 'Run')
 
     expect(await screen.findByText(/Failure summary: Details redacted/i)).toBeInTheDocument()
     expect(screen.queryByText(/\/home\/runner|Traceback|secret/i)).not.toBeInTheDocument()
@@ -237,6 +261,7 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     expect(await screen.findByRole('heading', { name: 'Sample framework' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /refresh projects/i }))
@@ -265,6 +290,7 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     const openButtons = await screen.findAllByRole('button', { name: /open/i })
 
     await user.click(openButtons[0])
@@ -294,17 +320,21 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click((await screen.findAllByRole('button', { name: /open/i }))[0])
     await screen.findByText('Sample Controls')
 
+    await goToPage(user, 'Run')
     await user.click(screen.getByRole('button', { name: /^start run$/i }))
 
+    await goToPage(user, 'Create')
     for (const button of screen.getAllByRole('button', { name: /open/i })) {
       expect(button).toBeDisabled()
     }
 
     pendingStart.resolve(jsonResponse({ run: wrongProjectRun }, { status: 202 }))
 
+    await goToPage(user, 'Run')
     await waitFor(() => expect(screen.getByRole('button', { name: /^start run$/i })).toBeEnabled())
     expect(screen.queryByText(/Run eeeeeeee/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/started/i)).not.toBeInTheDocument()
@@ -363,19 +393,23 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     let openButtons = await screen.findAllByRole('button', { name: /open/i })
     await user.click(openButtons[0])
     expect(await screen.findByText('Alpha Controls')).toBeInTheDocument()
 
+    await goToPage(user, 'Review')
     await user.click(screen.getByRole('button', { name: /refresh review/i }))
     expect(await screen.findByText('ALPHA-1')).toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: /ALPHA-1/i }))
     expect(screen.getByRole('button', { name: /approve selected/i })).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: /refresh review/i }))
+    await goToPage(user, 'Create')
     openButtons = screen.getAllByRole('button', { name: /open/i })
     await user.click(openButtons[1])
     expect(await screen.findByText('Beta Controls')).toBeInTheDocument()
+    await goToPage(user, 'Review')
     expect(screen.queryByText('ALPHA-1')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /approve selected/i })).toBeDisabled()
 
@@ -421,7 +455,9 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
+    await goToPage(user, 'Review')
     await user.click(screen.getByRole('button', { name: /refresh review/i }))
 
     expect(await screen.findByText('CTRL-1')).toBeInTheDocument()
@@ -472,7 +508,9 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
+    await goToPage(user, 'Review')
     await user.click(screen.getByRole('button', { name: /refresh review/i }))
     await user.click(await screen.findByRole('checkbox', { name: /STALE-1/i }))
     await user.click(screen.getByRole('button', { name: /approve selected/i }))
@@ -483,6 +521,7 @@ describe('project dashboard', () => {
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
 
+    await goToPage(user, 'Create')
     expect(await screen.findByRole('button', { name: /open/i })).toBeEnabled()
     expect(screen.queryByText(/1 updated, 0 already current/i)).not.toBeInTheDocument()
   })
@@ -510,7 +549,9 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
+    await goToPage(user, 'Run')
 
     expect(await screen.findByText(/Failure summary: Details redacted/i)).toBeInTheDocument()
     expect(screen.queryByText(errorMessage)).not.toBeInTheDocument()
@@ -528,6 +569,7 @@ describe('project dashboard', () => {
     render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
     const file = new File(['x'], 'too-large.csv', { type: 'text/csv' })
@@ -586,8 +628,10 @@ describe('project dashboard', () => {
     const { container } = render(<App />)
     await user.type(screen.getByLabelText(/session token/i), 'token')
     await user.click(screen.getByRole('button', { name: /connect/i }))
+    await goToPage(user, 'Create')
     await user.click(await screen.findByRole('button', { name: /open/i }))
 
+    await goToPage(user, 'Review')
     await user.click(screen.getByRole('button', { name: /refresh review/i }))
     expect(await screen.findByText('SAMPLE-LM-1')).toBeInTheDocument()
     expect(screen.queryByText(/token|secret|password/i)).not.toBeInTheDocument()
@@ -609,6 +653,7 @@ describe('project dashboard', () => {
     await user.click(screen.getByRole('button', { name: /delete guidance/i }))
     expect(await screen.findByText(/Guidance deleted/i)).toBeInTheDocument()
 
+    await goToPage(user, 'Outputs')
     await user.click(screen.getByRole('button', { name: /^preview$/i }))
     expect(await screen.findByText(/Microsoft.Authorization\/policySetDefinitions/i)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^download$/i }))
@@ -618,6 +663,10 @@ describe('project dashboard', () => {
     expect(await axe(container)).toHaveNoViolations()
   })
 })
+
+async function goToPage(user: ReturnType<typeof userEvent.setup>, page: string) {
+  await user.click(screen.getByRole('button', { name: page, exact: true }))
+}
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {

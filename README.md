@@ -354,7 +354,10 @@ allow-list. Explicit API origins are restricted to HTTP loopback addresses.
 The token is sent in the `X-CT-Session-Token` header and is kept only in tab
 memory; it is not placed in URLs, logs, localStorage, or other persistent
 browser storage. Theme selection defaults to the operating system preference,
-and only an explicit light/dark choice is persisted.
+and only an explicit light/dark choice is persisted. The guided Home page
+introduces the workflow, while Create, Run, Review, and Outputs keep each stage
+focused. System-wide portal preferences, including the compact theme switch,
+live under Config in the top-right menu.
 
 Dashboard workflow:
 
