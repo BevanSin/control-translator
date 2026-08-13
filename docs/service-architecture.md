@@ -113,12 +113,14 @@ required for the local single-user dashboard.
 `artifact_preview`, `artifact_download`, and `run_history`.
 
 Mapping, OOS, and guidance writes all acquire the per-project mutation lock and
-return typed conflict/partial-result data. Guidance records require source and
-provenance; by default they are stored under the project `guidance/` directory
-and exposed to future mapping runs through the corrections prompt path. Artifact
-preview/download never accepts arbitrary paths: resource names are allow-listed,
-resolved beneath the bundle directory, symlinks are rejected, previews are
-byte-bounded, and downloads are served as attachments with safe content types.
+also serialize by each resolved mutable file path, so two config-derived projects
+that share a mapping store, OOS register, or corrections file cannot interleave
+read-modify-write updates. Guidance records require source and provenance; by
+default they are stored under the project `guidance/` directory and exposed to
+future mapping runs through the corrections prompt path. Artifact preview/download
+never accepts arbitrary paths: resource names are allow-listed, resolved beneath
+the bundle directory, symlinks are rejected, previews are byte-bounded, and
+downloads are served as attachments with safe content types.
 
 Application errors have stable codes for adapter mapping:
 

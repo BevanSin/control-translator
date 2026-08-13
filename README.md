@@ -331,10 +331,10 @@ Dashboard workflow:
    visible. Refreshing or reopening a project reloads run history and resumes
    monitoring any non-terminal run so interrupted/restarted sessions are
    explicit rather than silently lost.
-6. Review mappings through the dashboard table. Search, filter, inspect
-   confidence/rationale/policy references, select multiple rows, and approve or
-   reject only after the confirmation dialog. Conflict feedback reports updated,
-   already-current, and missing controls.
+6. Review mappings through the dashboard table. Search, filter, paginate through
+   all results, inspect confidence/rationale/policy references, select multiple
+   rows, and approve or reject only after the confirmation dialog. Conflict
+   feedback reports updated, already-current, and missing controls.
 7. Manage local guidance with explicit source and provenance. Guidance is stored
    in the project workspace and feeds future mapping runs; it does not mutate the
    current mapping store or generated artifacts until the pipeline is run again.
