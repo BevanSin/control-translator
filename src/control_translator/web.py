@@ -93,7 +93,7 @@ def main() -> None:
     if args.print_token:
         print(f"Local session token: {app.state.session_token}", file=sys.stderr)
     print(f"Local dashboard: {url}", file=sys.stderr)
-    if not args.no_browser and sys.stdout.isatty():
+    if not args.no_browser and sys.stdin.isatty():
         webbrowser.open(bootstrap_url)
 
     config = uvicorn.Config(app, host=DEFAULT_HOST, port=port, log_level="warning", access_log=False)

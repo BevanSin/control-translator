@@ -16,12 +16,15 @@ class build_py(_build_py):
         frontend = root / "frontend"
         output = (Path(self.build_lib) / "control_translator" / "web_assets").resolve()
         output.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["npm", "ci"], cwd=frontend, check=True)
-        subprocess.run(
-            ["npm", "run", "build", "--", "--outDir", str(output)],
-            cwd=frontend,
-            check=True,
-        )
+        try:
+            subprocess.run(["npm", "ci"], cwd=frontend, check=True)
+            subprocess.run(
+                ["npm", "run", "build", "--", "--outDir", str(output)],
+                cwd=frontend,
+                check=True,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError("Node.js / npm is required to build the dashboard assets.") from exc
 
 
 setup(cmdclass={"build_py": build_py})
