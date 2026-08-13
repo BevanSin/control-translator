@@ -32,7 +32,7 @@ def _assert_assets(names: list[str], artifact: Path) -> None:
         for name in normalized
     ):
         raise RuntimeError(f"{artifact.name} does not contain a dashboard JavaScript bundle")
-    if not any(name.endswith("control_translator/catalogue_assets/azure-builtins.json") for name in normalized):
+    if not any(name.endswith("control_translator/catalogue_assets/azure-builtins.json.gz") for name in normalized):
         raise RuntimeError(f"{artifact.name} does not contain the bundled Azure policy catalogue")
     if not any(name.endswith("control_translator/catalogue_assets/LICENSE.azure-policy") for name in normalized):
         raise RuntimeError(f"{artifact.name} does not contain the Azure Policy licence")

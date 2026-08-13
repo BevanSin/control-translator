@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+import gzip
 import hashlib
 from importlib import resources
 import json
@@ -13,7 +14,7 @@ from uuid import UUID
 from .base import PolicyCatalogue, PolicyDefinition
 
 _ASSET_PACKAGE = "control_translator.catalogue_assets"
-_ASSET_NAME = "azure-builtins.json"
+_ASSET_NAME = "azure-builtins.json.gz"
 _REPOSITORY = "https://github.com/Azure/azure-policy"
 _POLICY_ID = re.compile(
     r"^/providers/Microsoft\.Authorization/policyDefinitions/([^/]+)$",
@@ -39,12 +40,12 @@ class BundledPolicyCatalogue(PolicyCatalogue):
 
     def builtins(self) -> list[PolicyDefinition]:
         if self.source is not None:
-            with self.source.open(encoding="utf-8") as handle:
-                payload = json.load(handle)
+            payload = _load_payload(self.source)
         else:
             asset = resources.files(_ASSET_PACKAGE).joinpath(_ASSET_NAME)
-            with asset.open("r", encoding="utf-8") as handle:
-                payload = json.load(handle)
+            with asset.open("rb") as compressed:
+                with gzip.open(compressed, "rt", encoding="utf-8") as handle:
+                    payload = json.load(handle)
 
         policies, metadata = validate_snapshot(payload)
         self.metadata = metadata
@@ -105,6 +106,14 @@ def snapshot_digest(policies: list[dict]) -> str:
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _load_payload(path: Path) -> object:
+    if path.name.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
+            return json.load(handle)
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def build_snapshot(source: Path, source_commit: str, generated_at: str) -> dict:
