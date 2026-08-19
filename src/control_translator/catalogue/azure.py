@@ -18,6 +18,8 @@ from .base import PolicyCatalogue, PolicyDefinition
 
 _ARM = "https://management.azure.com"
 _API_VERSION = "2021-06-01"
+_NON_AUDITABLE = {"modify", "deployifnotexists", "append", "disabled"}
+_AUDIT_EFFECTS = {"audit", "auditifnotexists", "deny"}
 
 
 def _extract_effect(props: dict) -> tuple[str, list[str]]:
@@ -60,13 +62,20 @@ def normalize_definition(raw: dict) -> PolicyDefinition:
     )
 
 
-class AzurePolicyCatalogue(PolicyCatalogue):
-    # Effects that produce no evaluation in DoNotEnforce (audit-only) mode.
-    # A policy is kept if its default effect is in AUDIT_EFFECTS, or if any
-    # of its allowedValues include an audit effect (policy can be used in audit mode).
-    _NON_AUDITABLE = {"modify", "deployifnotexists", "append", "disabled"}
-    _AUDIT_EFFECTS  = {"audit", "auditifnotexists", "deny"}
+def can_audit(definition: PolicyDefinition) -> bool:
+    """Return whether a policy produces evaluation output in audit-only mode."""
+    effect = definition.effect.lower()
+    if effect in _AUDIT_EFFECTS or effect == "":
+        return True
+    if effect in _NON_AUDITABLE:
+        return any(
+            value.lower() in _AUDIT_EFFECTS
+            for value in definition.effect_allowed_values
+        )
+    return True
 
+
+class AzurePolicyCatalogue(PolicyCatalogue):
     def __init__(self, cache: str | None = None, *, subscription: str | None = None,
                  include_static: bool = False, exclude_deprecated: bool = True,
                  exclude_manual: bool = True, exclude_non_auditable: bool = True,
@@ -79,24 +88,13 @@ class AzurePolicyCatalogue(PolicyCatalogue):
         self.exclude_non_auditable = exclude_non_auditable
         self.refresh               = refresh
 
-    def _can_audit(self, d: PolicyDefinition) -> bool:
-        """Return True if this policy produces evaluation output in audit-only mode."""
-        eff = d.effect.lower()
-        if eff in self._AUDIT_EFFECTS or eff == "":
-            return True   # unknown effect (old cache) → keep conservatively
-        if eff in self._NON_AUDITABLE:
-            # Keep if any allowed value is an audit-compatible effect
-            return any(v.lower() in self._AUDIT_EFFECTS
-                       for v in d.effect_allowed_values)
-        return True   # unrecognised effect → keep
-
     def builtins(self) -> list[PolicyDefinition]:
         if self.cache and os.path.exists(self.cache) and not self.refresh:
             defs = [PolicyDefinition.from_dict(d) for d in json.load(
                 open(self.cache, encoding="utf-8"))]
             # apply non-auditable filter even on cached data
             if self.exclude_non_auditable:
-                defs = [d for d in defs if self._can_audit(d)]
+                defs = [d for d in defs if can_audit(d)]
             return defs
 
         defs = [normalize_definition(r) for r in self._pull_live()]
@@ -108,7 +106,7 @@ class AzurePolicyCatalogue(PolicyCatalogue):
             defs = [d for d in defs if d.effect.lower() != "manual"]
         n_after_manual = len(defs)
         if self.exclude_non_auditable:
-            defs = [d for d in defs if self._can_audit(d)]
+            defs = [d for d in defs if can_audit(d)]
         import sys
         removed = []
         if n_raw - n_after_deprecated: removed.append(f"{n_raw - n_after_deprecated} deprecated")

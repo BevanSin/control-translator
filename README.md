@@ -102,8 +102,8 @@ This example uses NZISM, but the same flow applies to any framework with a CSV e
 | Requirement | Notes |
 |-------------|-------|
 | **Python 3.10+** | Check: `py --version` |
-| **Azure CLI** | `az --version` · [Install guide](https://learn.microsoft.com/cli/azure/install-azure-cli-windows) |
-| **An LLM endpoint** | Azure AI Foundry with GPT-4o-mini recommended (< $1/run) |
+| **Azure CLI (optional)** | Required for live ARM catalogue refresh or keyless Foundry authentication; not required for the bundled catalogue |
+| **An LLM endpoint (optional)** | Azure AI Foundry or a direct provider improves mapping quality; the heuristic remains fully local |
 
 ### 2. Set up secrets
 
@@ -118,9 +118,10 @@ copy .env.example .env
 pip install -e ".[azure,openai]"
 ```
 
-### 4. Place your framework CSV and authenticate
+### 4. Place your framework CSV and authenticate when needed
 
 ```powershell
+# Only required for a live ARM catalogue or keyless Azure model provider:
 az login --tenant <your-tenant-id>
 mkdir data\source -Force
 copy "C:\path\to\NZISM-3.9.csv" data\source\NZISM-3.9.csv
@@ -132,9 +133,14 @@ copy "C:\path\to\NZISM-3.9.csv" data\source\NZISM-3.9.csv
 ct run --config config\nzism-azure.json
 ```
 
-First run pulls the Azure built-in policy catalogue from ARM (cached afterward),
-ingests your controls, and runs the agentic mapper. For NZISM with 1,216 controls
-expect ~35 minutes and < $1 in Azure AI compute.
+The Azure configuration pulls the built-in policy catalogue from ARM and caches
+it. To remove that Azure dependency, set `"catalogue": {"type": "bundled"}`.
+The release includes a normalized production snapshot with real Azure policy
+IDs, its authoritative Azure/azure-policy commit, generation date, checksum,
+and Microsoft MIT licence. This affects catalogue freshness only; source files,
+mapping stores, review decisions, generated artifacts, and validation remain
+local. For NZISM with 1,216 controls expect ~35 minutes and < $1 in model
+compute when a cloud classifier is selected.
 
 ### 6. Review and approve
 
@@ -552,7 +558,7 @@ Set `mapping.classifier` in your config:
 
 | Classifier | LLM | Auth | Recommendation |
 |---|---|---|---|
-| `heuristic` | None (token overlap) | Free, offline | Testing only |
+| `heuristic` | None (token overlap) | Free, offline | Offline baseline |
 | `azure-openai` | GPT-4o / GPT-4o-mini | `az login` (keyless) | **Recommended** |
 | `azure-inference` | Phi-4, Llama, Mistral | `az login` | Alternative |
 | `foundry` | Claude via Foundry | `az login` | Alternative |

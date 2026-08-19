@@ -49,6 +49,12 @@ def test_successful_run_emits_ordered_stage_events(tmp_path):
     assert {e.run_id for e in events} == {result.run_id}
     assert [e.sequence for e in events] == list(range(len(events)))
     assert {e.schema_version for e in events} == {EVENT_SCHEMA_VERSION}
+    catalogue_started = next(
+        event
+        for event in events
+        if event.type is EventType.STAGE_STARTED and event.stage is Stage.CATALOGUE
+    )
+    assert catalogue_started.summary["from_cache"] is False
 
     completion = events[-1]
     assert completion.summary["approved"] == len(result.mapping.approved())
@@ -56,6 +62,26 @@ def test_successful_run_emits_ordered_stage_events(tmp_path):
     assert completion.summary["lint_errors"] == 0
     assert completion.summary["published"] is True
     assert completion.to_dict()["type"] == "run.completed"
+
+
+def test_bundled_catalogue_emits_release_evidence(tmp_path):
+    config = _sample_config(str(tmp_path))
+    config["catalogue"] = {"type": "bundled"}
+    events: list[PipelineEvent] = []
+
+    run_pipeline(config, event_sink=events.append, do_distribute=False)
+
+    completion = next(
+        event
+        for event in events
+        if event.type is EventType.STAGE_COMPLETED and event.stage is Stage.CATALOGUE
+    )
+    assert completion.summary["catalogue_source"] == "bundled"
+    assert completion.summary["snapshot_schema_version"] == 1
+    assert completion.summary["snapshot_repository"] == "https://github.com/Azure/azure-policy"
+    assert len(completion.summary["snapshot_commit"]) == 40
+    assert completion.summary["snapshot_generated_at"] == "2026-08-14"
+    assert len(completion.summary["snapshot_sha256"]) == 64
 
 
 def test_failed_run_emits_stage_and_run_failure(tmp_path, monkeypatch):

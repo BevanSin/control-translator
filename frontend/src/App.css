@@ -525,6 +525,17 @@ textarea {
   font-weight: 800;
 }
 
+.event-copy {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.catalogue-evidence {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 .project-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
