@@ -64,6 +64,26 @@ def test_successful_run_emits_ordered_stage_events(tmp_path):
     assert completion.to_dict()["type"] == "run.completed"
 
 
+def test_bundled_catalogue_emits_release_evidence(tmp_path):
+    config = _sample_config(str(tmp_path))
+    config["catalogue"] = {"type": "bundled"}
+    events: list[PipelineEvent] = []
+
+    run_pipeline(config, event_sink=events.append, do_distribute=False)
+
+    completion = next(
+        event
+        for event in events
+        if event.type is EventType.STAGE_COMPLETED and event.stage is Stage.CATALOGUE
+    )
+    assert completion.summary["catalogue_source"] == "bundled"
+    assert completion.summary["snapshot_schema_version"] == 1
+    assert completion.summary["snapshot_repository"] == "https://github.com/Azure/azure-policy"
+    assert len(completion.summary["snapshot_commit"]) == 40
+    assert completion.summary["snapshot_generated_at"] == "2026-08-14"
+    assert len(completion.summary["snapshot_sha256"]) == 64
+
+
 def test_failed_run_emits_stage_and_run_failure(tmp_path, monkeypatch):
     class _Boom(RuntimeError):
         pass

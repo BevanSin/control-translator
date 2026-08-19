@@ -168,7 +168,11 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
             + (f"  [{', '.join(filters_note)}]" if filters_note and not from_cache else ""),
             policies=len(policies), from_cache=from_cache,
             catalogue_source=catalogue_kind,
-            snapshot_generated_at=metadata.generated_at if metadata is not None else None)
+            snapshot_schema_version=metadata.schema_version if metadata is not None else None,
+            snapshot_repository=metadata.source_repository if metadata is not None else None,
+            snapshot_commit=metadata.source_commit if metadata is not None else None,
+            snapshot_generated_at=metadata.generated_at if metadata is not None else None,
+            snapshot_sha256=metadata.content_sha256 if metadata is not None else None)
 
     oos = load_oos_records(mcfg.get("global_ignore"))
     store = MappingStore(mcfg["store"])

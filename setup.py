@@ -26,14 +26,16 @@ class sdist(_sdist):
 
     def make_release_tree(self, base_dir: str, files: list[str]) -> None:
         super().make_release_tree(base_dir, files)
-        root = Path(base_dir)
+        release_root = Path(base_dir)
+        source_root = Path(__file__).parent
         try:
-            build_dashboard(root, root / "src" / "control_translator" / "web_assets")
+            build_dashboard(
+                source_root,
+                release_root / "src" / "control_translator" / "web_assets",
+            )
         except Exception:
-            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(release_root, ignore_errors=True)
             raise
-        finally:
-            shutil.rmtree(root / "frontend" / "node_modules", ignore_errors=True)
 
 
 setup(cmdclass={"build_py": build_py, "sdist": sdist})

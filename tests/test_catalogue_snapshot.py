@@ -96,4 +96,5 @@ def test_release_contains_a_production_catalogue_snapshot():
 
     assert len(policies) > 2000
     assert catalogue.metadata is not None
+    assert catalogue.metadata.schema_version == 1
     assert catalogue.metadata.generated_at == "2026-08-14"

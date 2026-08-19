@@ -24,6 +24,7 @@ _POLICY_ID = re.compile(
 
 @dataclass(frozen=True)
 class SnapshotMetadata:
+    schema_version: int
     source_repository: str
     source_commit: str
     generated_at: str
@@ -94,6 +95,7 @@ def validate_snapshot(payload: object) -> tuple[list[dict], SnapshotMetadata]:
         raise ValueError("catalogue snapshot checksum does not match its contents")
 
     metadata = SnapshotMetadata(
+        schema_version=payload["schema_version"],
         source_repository=repository,
         source_commit=commit,
         generated_at=generated_at,
