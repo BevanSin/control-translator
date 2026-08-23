@@ -34,6 +34,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "control_translator.web_assets" = ["**/*"]
+"control_translator.catalogue_assets" = ["*.json.gz", "LICENSE.azure-policy"]
 
 [tool.ruff]
 target-version = "py310"

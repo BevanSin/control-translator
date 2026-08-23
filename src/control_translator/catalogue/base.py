@@ -40,6 +40,9 @@ def get_catalogue(kind: str, source: str | None = None,
     if kind == "offline":
         from .offline import OfflinePolicyCatalogue
         return OfflinePolicyCatalogue(source)
+    if kind == "bundled":
+        from .snapshot import BundledPolicyCatalogue
+        return BundledPolicyCatalogue(source)
     if kind == "azure":
         from .azure import AzurePolicyCatalogue
         return AzurePolicyCatalogue(
