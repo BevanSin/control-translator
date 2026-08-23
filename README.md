@@ -8,6 +8,16 @@ See the [contribution guide](CONTRIBUTING.md) and
 service contracts and operator procedures are documented in the
 [Phase 2 service architecture](docs/service-architecture.md).
 
+### Documentation index
+
+| Document | Use it for |
+| --- | --- |
+| This README | Install, quick start, dashboard, API, and how the pipeline works |
+| [End-to-end process guide](docs/process-guide.html) | CLI operator deep dive: full configuration reference, OOS triage, authority sign-off, deployment, annual update cycle, troubleshooting |
+| [Service architecture](docs/service-architecture.md) | Service contracts, data locations, and recovery procedures |
+| [Engineering harness](docs/engineering-harness.md) | How issues, agents, reviews, and CI gates fit together |
+| [Future work](docs/future-work.md) | Ideas captured but not yet built |
+
 Turn any compliance framework into a deployable **Azure Policy initiative** — automatically.
 
 You give it a security standard (like NZISM or IRAP/ISM). It uses an LLM to figure out

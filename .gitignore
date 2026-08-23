@@ -1,6 +1,13 @@
 # ── generated outputs ─────────────────────────────────────────────────────────
 out/
 
+# Review workbooks exported by `ct export-review`. The default output lives under
+# out/, but the documented `--output review.xlsx` form writes to the working
+# directory, so exclude stray workbooks anywhere in the tree.
+*.xlsx
+*.xlsm
+!tests/fixtures/**/*.xlsx
+
 # ── virtual environment ───────────────────────────────────────────────────────
 .venv/
 venv/
