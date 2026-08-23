@@ -130,10 +130,21 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
 
     ccfg = config["catalogue"]
     cache_path = ccfg.get("source")
-    from_cache = bool(cache_path and os.path.exists(cache_path))
+    catalogue_kind = ccfg["type"]
+    from_cache = bool(
+        catalogue_kind == "azure"
+        and cache_path
+        and os.path.exists(cache_path)
+        and not ccfg.get("refresh", False)
+    )
+    if catalogue_kind == "bundled":
+        catalogue_start = "Catalogue — loading bundled Azure snapshot"
+    elif catalogue_kind == "offline":
+        catalogue_start = "Catalogue — loading offline file"
+    else:
+        catalogue_start = f"Catalogue — {'loading from cache' if from_cache else 'pulling from ARM (first run)'}"
     with _stage(emitter, Stage.CATALOGUE,
-                f"Catalogue — {'loading from cache' if from_cache else 'pulling from ARM (first run)'}",
-                from_cache=from_cache):
+                catalogue_start, from_cache=from_cache, catalogue_source=catalogue_kind):
         _check_cancel()
         cat_obj  = get_catalogue(ccfg["type"], cache_path, ccfg)
         policies = cat_obj.builtins()
@@ -143,12 +154,25 @@ def run_pipeline(config: dict, *, do_distribute: bool = True,
             filters_note.append("Modify/DINE-only excluded")
         if hasattr(cat_obj, "exclude_manual") and cat_obj.exclude_manual:
             filters_note.append("Manual excluded")
+        metadata = getattr(cat_obj, "metadata", None)
+        if metadata is not None:
+            source_note = f" — bundled snapshot {metadata.generated_at}"
+        elif catalogue_kind == "offline":
+            source_note = " (offline file)"
+        else:
+            source_note = " (cached)" if from_cache else " — cache written for next run"
         emitter.stage_completed(
             Stage.CATALOGUE,
             f"{len(policies)} built-in policies available"
-            + (" (cached)" if from_cache else " — cache written for next run")
+            + source_note
             + (f"  [{', '.join(filters_note)}]" if filters_note and not from_cache else ""),
-            policies=len(policies), from_cache=from_cache)
+            policies=len(policies), from_cache=from_cache,
+            catalogue_source=catalogue_kind,
+            snapshot_schema_version=metadata.schema_version if metadata is not None else None,
+            snapshot_repository=metadata.source_repository if metadata is not None else None,
+            snapshot_commit=metadata.source_commit if metadata is not None else None,
+            snapshot_generated_at=metadata.generated_at if metadata is not None else None,
+            snapshot_sha256=metadata.content_sha256 if metadata is not None else None)
 
     oos = load_oos_records(mcfg.get("global_ignore"))
     store = MappingStore(mcfg["store"])

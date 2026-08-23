@@ -1258,7 +1258,10 @@ function RunDetail({ run, events, droppedEventCount, onCancel, cancelDisabled }:
         {events.map((event) => (
           <li key={event.sequence} className={event.type === 'run.warning' ? 'warning-event' : ''}>
             <span className="event-sequence">#{event.sequence}</span>
-            <span>{event.message}</span>
+            <span className="event-copy">
+              <span>{event.message}</span>
+              <CatalogueEvidence event={event} />
+            </span>
             {event.stage ? <span className="event-stage">{event.stage}</span> : null}
           </li>
         ))}
@@ -1266,6 +1269,50 @@ function RunDetail({ run, events, droppedEventCount, onCancel, cancelDisabled }:
       {events.length === 0 ? <StateCard title="No events loaded yet" text="Polling will append ordered events without duplicating terminal state." /> : null}
     </article>
   )
+}
+
+function CatalogueEvidence({ event }: { event: PipelineEvent }) {
+  if (event.type !== 'stage.completed' || event.stage !== 'catalogue' || event.summary.catalogue_source !== 'bundled') {
+    return null
+  }
+  const generatedAt = stringSummary(event, 'snapshot_generated_at')
+  const repository = stringSummary(event, 'snapshot_repository')
+  const commit = stringSummary(event, 'snapshot_commit')
+  const checksum = stringSummary(event, 'snapshot_sha256')
+  const schemaVersion = numberSummary(event, 'snapshot_schema_version')
+  if (!generatedAt || !repository || !commit || !checksum || schemaVersion === null) {
+    return null
+  }
+  const repositoryName = repository.replace(/^https:\/\/github\.com\//, '')
+  return (
+    <small className="catalogue-evidence">
+      Catalogue evidence: schema v{schemaVersion}; generated {formatDateOnly(generatedAt)} ({snapshotAge(generatedAt)}); source {repositoryName}@{commit.slice(0, 12)}; SHA-256 {checksum}
+    </small>
+  )
+}
+
+function stringSummary(event: PipelineEvent, key: string): string | null {
+  const value = event.summary[key]
+  return typeof value === 'string' && value ? value : null
+}
+
+function numberSummary(event: PipelineEvent, key: string): number | null {
+  const value = event.summary[key]
+  return typeof value === 'number' ? value : null
+}
+
+function formatDateOnly(value: string): string {
+  const parsed = new Date(`${value}T00:00:00Z`)
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed)
+}
+
+function snapshotAge(value: string): string {
+  const generated = new Date(`${value}T00:00:00Z`).getTime()
+  if (Number.isNaN(generated)) return 'age unavailable'
+  const days = Math.max(0, Math.floor((Date.now() - generated) / 86_400_000))
+  return `${days} day${days === 1 ? '' : 's'} old`
 }
 
 function safeMessage(error: unknown): string {

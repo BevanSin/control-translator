@@ -129,15 +129,23 @@ describe('project dashboard', () => {
       .mockResolvedValueOnce(jsonResponse({ run }, { status: 202 }))
       .mockResolvedValueOnce(jsonResponse({ run: succeeded }))
       .mockResolvedValueOnce(jsonResponse({
-        count: 3,
+        count: 4,
         dropped_event_count: 0,
-        latest_sequence: 2,
+        latest_sequence: 3,
         terminal_state: 'succeeded',
         events: [
-          event(run.id, 2, 'run.completed', 'Pipeline completed'),
+          event(run.id, 3, 'run.completed', 'Pipeline completed'),
           event(run.id, 0, 'run.started', 'Pipeline started'),
-          event(run.id, 1, 'run.warning', 'Pipeline warning'),
-          event(run.id, 1, 'run.warning', 'Duplicate warning'),
+          event(run.id, 1, 'stage.completed', '2,312 built-in policies available', {
+            catalogue_source: 'bundled',
+            snapshot_schema_version: 1,
+            snapshot_repository: 'https://github.com/Azure/azure-policy',
+            snapshot_commit: 'c9562a455473fb6179680fadbc1919db01c29cfc',
+            snapshot_generated_at: '2026-08-14',
+            snapshot_sha256: '056c321e451b98359226101061fc59f39e2b5b8e2c856a01c661525debdd8766',
+          }, 'catalogue'),
+          event(run.id, 2, 'run.warning', 'Pipeline warning'),
+          event(run.id, 2, 'run.warning', 'Duplicate warning'),
         ],
       }))
     vi.stubGlobal('fetch', fetchMock)
@@ -159,6 +167,9 @@ describe('project dashboard', () => {
     expect(await screen.findByText(/Run reached Succeeded/i)).toBeInTheDocument()
     expect(screen.getByText(/1 warning reported/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Pipeline warning/i)).toHaveLength(1)
+    expect(screen.getByText(/Catalogue evidence: schema v1/)).toHaveTextContent(/days old/)
+    expect(screen.getByText(/Catalogue evidence: schema v1/)).toHaveTextContent(/Azure\/azure-policy@c9562a455473/)
+    expect(screen.getByText(/Catalogue evidence: schema v1/)).toHaveTextContent(/SHA-256 056c321e/)
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/sources/upload'))).toBe(true)
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/runs') && String(url).includes('/events'))).toBe(true)
   })
@@ -811,16 +822,23 @@ function reviewMapping(controlId: string) {
   }
 }
 
-function event(runId: string, sequence: number, type: string, message: string) {
+function event(
+  runId: string,
+  sequence: number,
+  type: string,
+  message: string,
+  summary?: Record<string, boolean | number | string | null>,
+  stage?: string | null,
+) {
   return {
     schema_version: 1,
     type,
     run_id: runId,
     sequence,
     timestamp: '2026-01-01T00:00:01Z',
-    stage: type.startsWith('stage.') ? 'map' : null,
+    stage: stage === undefined ? (type.startsWith('stage.') ? 'map' : null) : stage,
     message,
-    summary: type === 'run.warning' ? { kind: 'validation' } : {},
+    summary: summary ?? (type === 'run.warning' ? { kind: 'validation' } : {}),
   }
 }
 
