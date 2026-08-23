@@ -15,6 +15,7 @@ service contracts and operator procedures are documented in the
 | This README | Install, quick start, dashboard, API, and how the pipeline works |
 | [End-to-end process guide](docs/process-guide.html) | CLI operator deep dive: full configuration reference, OOS triage, authority sign-off, deployment, annual update cycle, troubleshooting |
 | [Service architecture](docs/service-architecture.md) | Service contracts, data locations, and recovery procedures |
+| [Measuring mapping quality](docs/evaluation.md) | Scoring mapping output against a published reference initiative with `ct eval` |
 | [Engineering harness](docs/engineering-harness.md) | How issues, agents, reviews, and CI gates fit together |
 | [Future work](docs/future-work.md) | Ideas captured but not yet built |
 

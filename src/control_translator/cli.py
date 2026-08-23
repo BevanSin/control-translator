@@ -239,6 +239,33 @@ def cmd_seed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_eval(args: argparse.Namespace) -> int:
+    from .evaluation import evaluate, format_report
+
+    config = _load(args.config)
+    ks = tuple(sorted({int(k) for k in args.at_k.split(",") if k.strip()}))
+    report = evaluate(
+        config,
+        initiative_path=args.gold,
+        ks=ks,
+        group_prefix=args.group_prefix,
+        control_limit=args.limit,
+    )
+
+    print(format_report(report))
+
+    if args.output:
+        os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
+        with open(args.output, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2)
+        print(f"\nreport -> {args.output}")
+
+    if not report["gold_set"]["evaluated_pairs"]:
+        print("\nno gold pairs were evaluable against this configuration", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ct", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -279,6 +306,21 @@ def main(argv: list[str] | None = None) -> int:
     p_imp.add_argument("--input", required=True,
                        help="completed review Excel file")
     p_imp.set_defaults(func=cmd_import_review)
+
+    p_eval = sub.add_parser("eval",
+                            help="score mapping quality against a published initiative")
+    p_eval.add_argument("--config", required=True)
+    p_eval.add_argument("--gold", required=True, metavar="PATH",
+                        help="published policySet.json to score against")
+    p_eval.add_argument("--at-k", default="5,12,25,50",
+                        help="comma-separated shortlist sizes for recall@k")
+    p_eval.add_argument("--group-prefix", default="",
+                        help="group name prefix to strip when recovering control ids")
+    p_eval.add_argument("--limit", type=int, default=None,
+                        help="evaluate only the first N controls (smoke runs)")
+    p_eval.add_argument("--output", default=None,
+                        help="write the full JSON report to this path")
+    p_eval.set_defaults(func=cmd_eval)
 
     args = parser.parse_args(argv)
     return args.func(args)

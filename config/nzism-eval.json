@@ -1,0 +1,31 @@
+{
+  "framework": {
+    "id": "nzism",
+    "version": "3.9",
+    "short_name": "NZISM",
+    "display_name": "New Zealand ISM",
+    "reference_url": "https://www.nzism.gcsb.govt.nz/ism-document"
+  },
+  "ingest": {
+    "type": "nzism",
+    "source": "data/source/nzism-3.9.csv",
+    "classification_profile": "all"
+  },
+  "catalogue": {
+    "type": "bundled"
+  },
+  "mapping": {
+    "engine": "agentic",
+    "classifier": "heuristic",
+    "retrieval": "tfidf",
+    "top_k": 12,
+    "store": "out/eval/mapping.json",
+    "global_ignore": [
+      "data/mappings/global-ignore.json",
+      "data/mappings/nzism-ignore.json"
+    ],
+    "auto_approve": false,
+    "confidence_threshold": 0.4
+  },
+  "out_dir": "out/eval"
+}

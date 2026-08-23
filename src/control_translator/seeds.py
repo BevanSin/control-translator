@@ -43,6 +43,44 @@ def _strip_group_prefix(name: str, prefix: str) -> str:
     return m.group(0) if m else name
 
 
+def extract_initiative_pairs(pset_path: str, *, group_prefix: str = "") -> dict[str, list[PolicyRef]]:
+    """Read control→policy pairs from a policySet.json without touching any store.
+
+    Shared by the seeder and the evaluation harness so both read published
+    initiatives the same way.
+    """
+    with open(pset_path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    props = raw.get("properties", raw)
+
+    ctrl_from_group: dict[str, str] = {}
+    for g in props.get("policyDefinitionGroups", []):
+        gname = g.get("name", "")
+        ctrl_id = _strip_group_prefix(gname, group_prefix)
+        if ctrl_id:
+            ctrl_from_group[gname] = ctrl_id
+
+    ctrl_policies: dict[str, list[PolicyRef]] = {}
+    for pd in props.get("policyDefinitions", []):
+        pid = pd.get("policyDefinitionId", "")
+        ref_name = pd.get("policyDefinitionReferenceId", "")
+        for gname in pd.get("groupNames", []):
+            ctrl_id = ctrl_from_group.get(gname)
+            if ctrl_id:
+                ctrl_policies.setdefault(ctrl_id, []).append(
+                    PolicyRef(policy_id=pid, display_name=ref_name))
+    return ctrl_policies
+
+
+def initiative_group_count(pset_path: str, *, group_prefix: str = "") -> int:
+    """Number of control groups recognised in a policySet.json."""
+    with open(pset_path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    props = raw.get("properties", raw)
+    return sum(1 for g in props.get("policyDefinitionGroups", [])
+               if _strip_group_prefix(g.get("name", ""), group_prefix))
+
+
 # ── policySet.json seeder ─────────────────────────────────────────────────────
 
 def seed_from_initiative(
@@ -59,28 +97,7 @@ def seed_from_initiative(
 
     Returns a summary: {seeded, skipped_human, skipped_no_control, already_seeded}.
     """
-    with open(pset_path, encoding="utf-8") as fh:
-        raw = json.load(fh)
-    props = raw.get("properties", raw)
-
-    # Build group_name → control_id map
-    ctrl_from_group: dict[str, str] = {}
-    for g in props.get("policyDefinitionGroups", []):
-        gname    = g.get("name", "")
-        ctrl_id  = _strip_group_prefix(gname, group_prefix)
-        if ctrl_id:
-            ctrl_from_group[gname] = ctrl_id
-
-    # Accumulate policies per control
-    ctrl_policies: dict[str, list[PolicyRef]] = {}
-    for pd in props.get("policyDefinitions", []):
-        pid      = pd.get("policyDefinitionId", "")
-        ref_name = pd.get("policyDefinitionReferenceId", "")
-        for gname in pd.get("groupNames", []):
-            ctrl_id = ctrl_from_group.get(gname)
-            if ctrl_id:
-                ctrl_policies.setdefault(ctrl_id, []).append(
-                    PolicyRef(policy_id=pid, display_name=ref_name))
+    ctrl_policies = extract_initiative_pairs(pset_path, group_prefix=group_prefix)
 
     # Load store and write decisions
     mapping_set = store.load(framework_id, version)
@@ -113,7 +130,7 @@ def seed_from_initiative(
     if not dry_run:
         store.save(mapping_set)
 
-    summary["groups_found"]   = len(ctrl_from_group)
+    summary["groups_found"]   = initiative_group_count(pset_path, group_prefix=group_prefix)
     summary["pairs_extracted"] = sum(len(v) for v in ctrl_policies.values())
     return summary
 
