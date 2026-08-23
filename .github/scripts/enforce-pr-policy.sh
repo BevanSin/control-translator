@@ -4,7 +4,12 @@ set -euo pipefail
 if [[ -v CHANGED_FILES ]]; then
   changed_files="$CHANGED_FILES"
 else
-  changed_files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+  # Compare against the merge base rather than the base branch tip. The base tip
+  # advances whenever another pull request merges, and a plain two-dot diff would
+  # then report those unrelated files as changed here, demanding security review
+  # for paths this pull request never touched.
+  merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$BASE_SHA")"
+  changed_files="$(git diff --name-only "$merge_base" "$HEAD_SHA")"
 fi
 
 security_sensitive=false
