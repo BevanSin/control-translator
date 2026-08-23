@@ -3,6 +3,9 @@
 Captured ideas, not yet built. Each fits the existing pipeline architecture
 (ingest → catalogue → map → build → validate → distribute).
 
+Already delivered and removed from this list: flexible URL/CSV/XLS control input
+(Issue #23) and the local web dashboard for the review workflow (Phase 3, Issue #21).
+
 ## 1. Custom per-agency controls (front-end overlay)
 
 Let an agency add their **own** controls on top of a standard (NZISM, IRAP/ISM, etc.)
@@ -31,19 +34,7 @@ This is a build-layer split keyed on `props["compliance"]` — partition approve
 mappings into two `policySetDefinition`s (or two `policyDefinitionGroups` buckets) so
 agencies can enforce the mandatory controls and merely report on the recommended ones.
 
-## 3. Flexible front-end control input (URL or CSV)
-
-The front end should accept the control list either by:
-
-- **reaching out to a website** (fetch the framework / control catalogue published
-  online), or
-- **CSV upload** (the current path for NZISM, IRAP/ISM exports).
-
-Implementation: add ingestors behind the existing `FrameworkIngestor` interface — a
-`UrlIngestor` (fetch + parse) alongside the CSV path — both normalising to the same
-catalogue. Selection stays config-driven (`ingest.type` / `ingest.source`).
-
-## 4. Custom Azure Policy generation
+## 3. Custom Azure Policy generation
 
 For controls where no Azure built-in policy exists, generate a custom policy definition
 using the LLM:
@@ -53,13 +44,7 @@ using the LLM:
 - Emit as part of the bundle alongside the built-in initiative
 - Requires a separate review/approval gate for generated policy logic
 
-## 5. Web dashboard for review workflow
-
-A lightweight FastAPI + HTML frontend for the review queue, OOS triage, and run status.
-Complements the MCP server with a visual interface for non-technical reviewers
-(e.g. authority sign-off by someone who doesn't use Claude or VS Code).
-
-## 6. Additional framework ingestors
+## 4. Additional framework ingestors
 
 Extend beyond CSV to support other compliance frameworks natively:
 
